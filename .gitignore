@@ -1,0 +1,30 @@
+.DS_Store
+.cache
+npm-debug.log
+Thumbs.db
+node_modules/
+.build/
+extensions/**/dist/
+/out*/
+/extensions/**/out/
+build/node_modules
+coverage/
+test_data/
+test-results/
+test-results.xml
+/.profile-oss
+/cli/target
+/cli/openssl
+product.overrides.json
+*.snap.actual
+
+# Large binary files and executables
+
+
+# Temporary and cache files
+*.tmp
+*.temp
+*.log
+*.pid
+*.seed
+*.pid.lock

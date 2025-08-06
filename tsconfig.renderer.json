@@ -1,0 +1,21 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "ES2020",
+    "moduleResolution": "node",
+    "outDir": "./dist/renderer"
+  },
+  "include": [
+    "src/renderer.ts",
+    "src/ui/**/*",
+    "src/types/**/*",
+    "src/interfaces/**/*"
+  ],
+  "exclude": [
+    "src/main.ts",
+    "src/preload.ts",
+    "src/services/**/*",
+    "src/ipc/**/*",
+    "src/tests/**/*"
+  ]
+}
