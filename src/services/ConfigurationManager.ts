@@ -205,7 +205,8 @@ export class ConfigurationManager {
         showDebugConsole: false,
         uiLanguage: 'en',
         showNotifications: true
-      }
+      },
+      customVoices: []
     };
   }
 

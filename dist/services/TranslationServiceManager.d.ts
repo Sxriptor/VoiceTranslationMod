@@ -9,7 +9,9 @@ export declare class TranslationServiceManager implements TranslationService {
     private fallbackProviders;
     private translationCache;
     private currentProvider;
+    private initialized;
     constructor(configManager: ConfigurationManager);
+    private ensureInitialized;
     private initializeProviders;
     translate(text: string, targetLanguage: string, sourceLanguage?: string): Promise<TranslationResult>;
     getSupportedLanguages(): string[];

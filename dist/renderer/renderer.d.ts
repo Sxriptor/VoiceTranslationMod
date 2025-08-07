@@ -1,5 +1,8 @@
 declare const startButton: HTMLButtonElement;
 declare const testButton: HTMLButtonElement;
+declare const addVoiceButton: HTMLButtonElement;
+declare const hearYourselfButton: HTMLButtonElement;
+declare const virtualMicTestButton: HTMLButtonElement;
 declare const settingsButton: HTMLButtonElement;
 declare const refreshButton: HTMLButtonElement;
 declare const microphoneSelect: HTMLSelectElement;
@@ -24,10 +27,19 @@ declare function onLanguageChange(): Promise<void>;
 declare function onVoiceChange(): Promise<void>;
 declare function refreshDevicesAndVoices(): Promise<void>;
 declare function loadVoices(): Promise<void>;
+declare function loadCustomVoices(): Promise<void>;
 declare function initializeLanguageSelector(): Promise<void>;
 declare function loadMicrophoneDevices(): Promise<void>;
 declare function updateStatusIndicator(status?: string): void;
 declare function logToDebug(message: string): void;
 declare function updateApiKeys(apiKeys: any): Promise<void>;
 declare function checkApiKeysConfiguration(): Promise<void>;
+declare function setupTranslationStatusUpdates(): void;
+declare function testHearYourself(): Promise<void>;
+declare function testVirtualMicrophone(): Promise<void>;
+declare function showAddVoiceModal(): Promise<void>;
+declare function isValidVoiceId(voiceId: string): boolean;
+declare function addCustomVoiceToList(voiceId: string, displayName: string): Promise<void>;
+declare function saveCustomVoice(voiceId: string, displayName: string): Promise<void>;
+declare function playAudioInRenderer(audioBufferArray: number[]): Promise<void>;
 //# sourceMappingURL=renderer.d.ts.map

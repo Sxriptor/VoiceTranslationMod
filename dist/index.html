@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Real-Time Voice Translator</title>
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; media-src 'self' blob: data:;">
     <style>
         * {
             margin: 0;
@@ -199,6 +199,28 @@
         .debug-toggle:hover {
             background: rgba(255, 255, 255, 0.3);
         }
+
+        /* Custom voice modal styles */
+        .voice-modal-input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .voice-modal-button {
+            transition: all 0.2s ease;
+        }
+
+        .voice-modal-button:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        }
+
+        .voice-modal-button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
     </style>
 </head>
 <body>
@@ -232,7 +254,25 @@
                         </select>
                     </div>
                     <div class="control-group">
+                        <button id="add-voice-button" type="button">➕ Add Custom Voice</button>
+                    </div>
+                </div>
+
+                <div class="control-row">
+                    <div class="control-group">
                         <button id="test-button" type="button">🧪 Test Translation</button>
+                    </div>
+                    <div class="control-group">
+                        <!-- Empty for spacing -->
+                    </div>
+                </div>
+
+                <div class="control-row">
+                    <div class="control-group">
+                        <button id="hear-yourself-button" type="button">🎧 Hear Yourself</button>
+                    </div>
+                    <div class="control-group">
+                        <button id="virtual-mic-test-button" type="button">📢 Test Virtual Mic</button>
                     </div>
                 </div>
 

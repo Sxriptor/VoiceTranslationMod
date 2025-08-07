@@ -8,7 +8,9 @@ export declare class TextToSpeechManager implements TextToSpeechService {
     private primaryProvider;
     private synthesisCache;
     private voiceCache;
+    private initialized;
     constructor(configManager: ConfigurationManager);
+    private ensureInitialized;
     private initializeProviders;
     synthesize(text: string, voiceId: string): Promise<ArrayBuffer>;
     getAvailableVoices(): Promise<Voice[]>;

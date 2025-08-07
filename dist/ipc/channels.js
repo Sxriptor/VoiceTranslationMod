@@ -27,6 +27,8 @@ exports.CONFIG_CHANNELS = {
 exports.PIPELINE_CHANNELS = {
     START_TRANSLATION: 'pipeline:start',
     STOP_TRANSLATION: 'pipeline:stop',
+    TEST_TRANSLATION: 'pipeline:test',
+    GET_STATUS: 'pipeline:get-status',
     PROCESS_AUDIO: 'pipeline:process-audio',
     PROCESSING_UPDATE: 'pipeline:processing-update',
     PROCESSING_RESULT: 'pipeline:processing-result',

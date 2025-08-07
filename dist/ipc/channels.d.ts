@@ -21,6 +21,8 @@ export declare const CONFIG_CHANNELS: {
 export declare const PIPELINE_CHANNELS: {
     readonly START_TRANSLATION: "pipeline:start";
     readonly STOP_TRANSLATION: "pipeline:stop";
+    readonly TEST_TRANSLATION: "pipeline:test";
+    readonly GET_STATUS: "pipeline:get-status";
     readonly PROCESS_AUDIO: "pipeline:process-audio";
     readonly PROCESSING_UPDATE: "pipeline:processing-update";
     readonly PROCESSING_RESULT: "pipeline:processing-result";
@@ -75,6 +77,8 @@ export declare const IPC_CHANNELS: {
     readonly SERVICE_STATUS_CHANGED: "service:status-changed";
     readonly START_TRANSLATION: "pipeline:start";
     readonly STOP_TRANSLATION: "pipeline:stop";
+    readonly TEST_TRANSLATION: "pipeline:test";
+    readonly GET_STATUS: "pipeline:get-status";
     readonly PROCESS_AUDIO: "pipeline:process-audio";
     readonly PROCESSING_UPDATE: "pipeline:processing-update";
     readonly PROCESSING_RESULT: "pipeline:processing-result";

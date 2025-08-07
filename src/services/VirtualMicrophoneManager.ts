@@ -38,8 +38,18 @@ export class VirtualMicrophoneManager implements VirtualMicrophoneService {
     }
 
     async sendAudio(audioBuffer: ArrayBuffer): Promise<void> {
+        // Auto-connect if not connected
         if (!this.isConnected) {
-            throw new Error('Virtual microphone not connected');
+            await this.startStream();
+        }
+
+        // Check if we're in a browser environment (renderer process)
+        const isBrowserEnvironment = typeof window !== 'undefined' && typeof AudioContext !== 'undefined';
+        
+        if (!isBrowserEnvironment) {
+            console.log('🔊 Virtual microphone output skipped - running in main process (Node.js environment)');
+            console.log('   Virtual microphone would be active in the renderer process during actual usage');
+            return; // Don't fail, just skip audio output in main process
         }
 
         try {
@@ -124,25 +134,44 @@ export class VirtualMicrophoneManager implements VirtualMicrophoneService {
     }
 
     async playAudio(request: { audioBlob?: Blob; audioBuffer?: ArrayBuffer }): Promise<void> {
-        if (!this.isConnected) {
-            throw new Error('No virtual microphone device connected');
+        // For playAudio, we always output to system speakers (headphones)
+        // This is used for test mode and "hear yourself" functionality
+        
+        // Check if we're in a browser environment (renderer process)
+        const isBrowserEnvironment = typeof window !== 'undefined' && typeof Audio !== 'undefined';
+        
+        if (!isBrowserEnvironment) {
+            console.log('🔊 Audio playback skipped - running in main process (Node.js environment)');
+            console.log('   Audio would be played in the renderer process during actual usage');
+            return; // Don't fail, just skip audio playback in main process
         }
-
+        
         try {
             if (request.audioBlob) {
                 await this.playAudioBlob(request.audioBlob);
             } else if (request.audioBuffer) {
-                await this.sendAudio(request.audioBuffer);
+                await this.playAudioBuffer(request.audioBuffer);
             } else {
                 throw new Error('No audio data provided');
             }
         } catch (error) {
-            console.warn('Virtual microphone output failed:', error);
-            throw error;
+            console.warn('Audio playback failed, trying fallback:', error);
+            // Try fallback method
+            if (request.audioBuffer) {
+                await this.playAudioFallback(request.audioBuffer);
+            } else if (request.audioBlob) {
+                const arrayBuffer = await request.audioBlob.arrayBuffer();
+                await this.playAudioFallback(arrayBuffer);
+            }
         }
     }
 
     private async playAudioBlob(audioBlob: Blob): Promise<void> {
+        // Check if we're in a browser environment
+        if (typeof Audio === 'undefined' || typeof URL === 'undefined') {
+            throw new Error('Browser APIs not available - cannot play audio blob');
+        }
+
         return new Promise((resolve, reject) => {
             const audio = new Audio();
             const url = URL.createObjectURL(audioBlob);
@@ -191,6 +220,11 @@ export class VirtualMicrophoneManager implements VirtualMicrophoneService {
 
     private async playAudioFallback(audioBuffer: ArrayBuffer): Promise<void> {
         try {
+            // Check if we're in a browser environment
+            if (typeof Audio === 'undefined' || typeof Blob === 'undefined' || typeof URL === 'undefined') {
+                throw new Error('Browser APIs not available - cannot use fallback audio');
+            }
+
             const audioBlob = new Blob([audioBuffer], { type: 'audio/mpeg' });
 
             // Use HTML5 audio element as fallback

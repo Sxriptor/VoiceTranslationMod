@@ -22,6 +22,8 @@ export interface AppConfig {
     voiceSettings: VoiceSettings;
     /** UI preferences */
     uiSettings: UISettings;
+    /** Custom voices added by user */
+    customVoices?: CustomVoice[];
 }
 /**
  * API keys for external services
@@ -139,5 +141,18 @@ export interface LanguageInfo {
     supportsTranslation: boolean;
     /** Whether this language is supported for TTS */
     supportsTextToSpeech: boolean;
+}
+/**
+ * Custom voice added by user
+ */
+export interface CustomVoice {
+    /** Voice ID from ElevenLabs */
+    id: string;
+    /** Display name for the voice */
+    name: string;
+    /** When the voice was added */
+    dateAdded: string;
+    /** Optional description */
+    description?: string;
 }
 //# sourceMappingURL=ConfigurationTypes.d.ts.map
