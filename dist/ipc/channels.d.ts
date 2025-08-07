@@ -9,6 +9,7 @@ export declare const AUDIO_CHANNELS: {
     readonly AUDIO_DATA: "audio:data";
     readonly AUDIO_LEVEL: "audio:level";
     readonly DEVICE_CHANGED: "audio:device-changed";
+    readonly STREAM: "audio:stream";
 };
 export declare const CONFIG_CHANNELS: {
     readonly GET_CONFIG: "config:get";
@@ -27,6 +28,11 @@ export declare const PIPELINE_CHANNELS: {
     readonly PROCESSING_UPDATE: "pipeline:processing-update";
     readonly PROCESSING_RESULT: "pipeline:processing-result";
     readonly PROCESSING_ERROR: "pipeline:processing-error";
+};
+export declare const SPEECH_CHANNELS: {
+    readonly TRANSCRIBE: "speech:transcribe";
+    readonly TRANSCRIBE_RESPONSE: "speech:transcribe-response";
+    readonly TRANSCRIBE_PUSH_TO_TALK: "speech:transcribe-push-to-talk";
 };
 export declare const SERVICE_CHANNELS: {
     readonly GET_SERVICE_STATUS: "service:get-status";
@@ -75,6 +81,9 @@ export declare const IPC_CHANNELS: {
     readonly GET_SERVICE_STATUS: "service:get-status";
     readonly SERVICE_STATUS_RESPONSE: "service:status-response";
     readonly SERVICE_STATUS_CHANGED: "service:status-changed";
+    readonly TRANSCRIBE: "speech:transcribe";
+    readonly TRANSCRIBE_RESPONSE: "speech:transcribe-response";
+    readonly TRANSCRIBE_PUSH_TO_TALK: "speech:transcribe-push-to-talk";
     readonly START_TRANSLATION: "pipeline:start";
     readonly STOP_TRANSLATION: "pipeline:stop";
     readonly TEST_TRANSLATION: "pipeline:test";
@@ -96,6 +105,7 @@ export declare const IPC_CHANNELS: {
     readonly AUDIO_DATA: "audio:data";
     readonly AUDIO_LEVEL: "audio:level";
     readonly DEVICE_CHANGED: "audio:device-changed";
+    readonly STREAM: "audio:stream";
 };
 export type IPCChannel = typeof IPC_CHANNELS[keyof typeof IPC_CHANNELS];
 //# sourceMappingURL=channels.d.ts.map

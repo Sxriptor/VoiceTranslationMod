@@ -9,6 +9,14 @@ const hearYourselfButton = document.getElementById('hear-yourself-button');
 const virtualMicTestButton = document.getElementById('virtual-mic-test-button');
 const settingsButton = document.getElementById('settings-button');
 const refreshButton = document.getElementById('refresh-button');
+// Live translation elements
+const liveTranslationPanel = document.getElementById('live-translation-panel');
+const currentKeybindSpan = document.getElementById('current-keybind');
+const changeKeybindBtn = document.getElementById('change-keybind-btn');
+const recordingIndicator = document.getElementById('recording-indicator');
+const recordingText = document.getElementById('recording-text');
+const originalTextDiv = document.getElementById('original-text');
+const translatedTextDiv = document.getElementById('translated-text');
 const microphoneSelect = document.getElementById('microphone-select');
 const languageSelect = document.getElementById('language-select');
 const voiceSelect = document.getElementById('voice-select');
@@ -21,6 +29,23 @@ const statusIndicator = document.getElementById('status-indicator');
 // Application state
 let isTranslating = false;
 let isDebugVisible = false;
+let isRecording = false;
+let currentKeybind = 'Space';
+let mediaRecorder = null;
+let audioStream = null;
+let audioChunks = [];
+let isProcessingAudio = false; // Prevent concurrent audio processing
+// Global error handlers
+window.addEventListener('error', (event) => {
+    console.error('Global error:', event.error);
+    logToDebug(`❌ Global error: ${event.error?.message || 'Unknown error'}`);
+    logToDebug(`   File: ${event.filename}:${event.lineno}:${event.colno}`);
+});
+window.addEventListener('unhandledrejection', (event) => {
+    console.error('Unhandled promise rejection:', event.reason);
+    logToDebug(`❌ Unhandled promise rejection: ${event.reason}`);
+    event.preventDefault(); // Prevent the default behavior (logging to console)
+});
 // Initialize application
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('DOM loaded, initializing application...');
@@ -29,12 +54,256 @@ document.addEventListener('DOMContentLoaded', async () => {
         await loadMicrophoneDevices();
         await initializeLanguageSelector();
         await checkApiKeysConfiguration();
+        setupRealTimeAudioPlayback();
+        setupTestAudioPlayback();
+        setupRealTimeTranslationAudio();
+        setupClearAudioCapture();
         logToDebug('Application initialized successfully');
     }
     catch (error) {
+        console.error('Initialization error:', error);
         logToDebug(`Initialization error: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
 });
+// Set up real-time audio playback listener
+function setupRealTimeAudioPlayback() {
+    window.electronAPI.setupRealTimeAudioPlayback((data) => {
+        try {
+            const { audioData, originalText, translatedText, outputToVirtualMic } = data;
+            // Update UI with the translation
+            if (originalTextDiv && translatedTextDiv) {
+                originalTextDiv.textContent = originalText;
+                originalTextDiv.classList.remove('processing', 'empty');
+                translatedTextDiv.textContent = translatedText;
+                translatedTextDiv.classList.remove('empty');
+            }
+            // Play the audio in the renderer process
+            playRealTimeAudio(audioData, outputToVirtualMic);
+            logToDebug(`🔄 Real-time: "${originalText}" → "${translatedText}"`);
+        }
+        catch (error) {
+            console.error('Error handling real-time audio playback:', error);
+            logToDebug(`❌ Real-time playback error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+    });
+}
+// Set up test audio playback listener
+function setupTestAudioPlayback() {
+    window.electronAPI.setupTestAudioPlayback((data) => {
+        try {
+            const { audioData, originalText, translatedText, outputToHeadphones } = data;
+            logToDebug(`🧪 Test audio: "${originalText}" → "${translatedText}"`);
+            // Play the audio in the renderer process
+            playTestAudio(audioData, outputToHeadphones);
+        }
+        catch (error) {
+            console.error('Error handling test audio playback:', error);
+            logToDebug(`❌ Test audio playback error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+    });
+}
+// Set up real-time translation audio playback listener
+function setupRealTimeTranslationAudio() {
+    window.electronAPI.setupRealTimeTranslationAudio((data) => {
+        try {
+            const { audioData, originalText, translatedText, outputToVirtualMic, isRealTime } = data;
+            logToDebug(`🔄 Real-time translation: "${originalText}" → "${translatedText}"`);
+            // Update UI with the translation
+            if (originalTextDiv && translatedTextDiv) {
+                originalTextDiv.textContent = originalText;
+                originalTextDiv.classList.remove('processing', 'empty');
+                translatedTextDiv.textContent = translatedText;
+                translatedTextDiv.classList.remove('empty');
+            }
+            // Play the translated audio
+            playRealTimeTranslationAudio(audioData, outputToVirtualMic);
+        }
+        catch (error) {
+            console.error('Error handling real-time translation audio:', error);
+            logToDebug(`❌ Real-time translation audio error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+    });
+}
+// Set up clear audio capture listener
+function setupClearAudioCapture() {
+    window.electronAPI.setupClearAudioCapture(async (data) => {
+        try {
+            const { reason } = data;
+            logToDebug(`🧹 Clearing audio capture - reason: ${reason}`);
+            // Clear the audio chunks to prevent re-processing
+            audioChunks = [];
+            // Reset processing flag
+            isProcessingAudio = false;
+            // Stop and restart the MediaRecorder to prevent corrupted audio
+            if (mediaRecorder && isTranslating) {
+                logToDebug('🔄 Restarting MediaRecorder to prevent audio corruption');
+                try {
+                    // Stop the current recorder
+                    if (mediaRecorder.state === 'recording' || mediaRecorder.state === 'paused') {
+                        mediaRecorder.stop();
+                    }
+                    // Wait a moment for it to fully stop
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                    // Restart the recorder with fresh audio stream
+                    await restartRealTimeAudioCapture();
+                }
+                catch (restartError) {
+                    console.error('Failed to restart MediaRecorder:', restartError);
+                    logToDebug(`❌ MediaRecorder restart failed: ${restartError instanceof Error ? restartError.message : 'Unknown error'}`);
+                }
+            }
+            // Clear UI text after a short delay to let user see the result
+            setTimeout(() => {
+                if (originalTextDiv && translatedTextDiv) {
+                    originalTextDiv.textContent = '';
+                    originalTextDiv.classList.add('empty');
+                    translatedTextDiv.textContent = '';
+                    translatedTextDiv.classList.add('empty');
+                }
+                if (recordingText) {
+                    recordingText.textContent = 'Listening continuously...';
+                }
+                logToDebug('🧹 UI cleared after translation');
+            }, 2000); // Show result for 2 seconds before clearing
+        }
+        catch (error) {
+            console.error('Error handling clear audio capture:', error);
+            logToDebug(`❌ Clear audio capture error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+    });
+}
+// Play test translated audio
+async function playTestAudio(audioData, outputToHeadphones) {
+    try {
+        // Convert array back to ArrayBuffer
+        const audioBuffer = new Uint8Array(audioData).buffer;
+        const audioBlob = new Blob([audioBuffer], { type: 'audio/mpeg' });
+        // Create audio element and play
+        const audio = new Audio();
+        const url = URL.createObjectURL(audioBlob);
+        audio.onended = () => {
+            URL.revokeObjectURL(url);
+        };
+        audio.onerror = (error) => {
+            URL.revokeObjectURL(url);
+            console.error('Test audio playback error:', error);
+        };
+        audio.src = url;
+        audio.volume = outputToHeadphones ? 1.0 : 0.7;
+        await audio.play();
+        logToDebug(`🔊 Test audio played successfully (headphones: ${outputToHeadphones})`);
+    }
+    catch (error) {
+        console.error('Failed to play test audio:', error);
+        logToDebug(`❌ Test audio playback failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+}
+// Play real-time translated audio
+async function playRealTimeAudio(audioData, outputToVirtualMic) {
+    try {
+        // Convert array back to ArrayBuffer
+        const audioBuffer = new Uint8Array(audioData).buffer;
+        const audioBlob = new Blob([audioBuffer], { type: 'audio/mpeg' });
+        // Create audio element and play
+        const audio = new Audio();
+        const url = URL.createObjectURL(audioBlob);
+        audio.onended = () => {
+            URL.revokeObjectURL(url);
+        };
+        audio.onerror = (error) => {
+            URL.revokeObjectURL(url);
+            console.error('Audio playback error:', error);
+        };
+        audio.src = url;
+        if (outputToVirtualMic) {
+            // For virtual microphone mode, play at lower volume
+            audio.volume = 0.7;
+            logToDebug('🎤 Playing translated audio (virtual microphone mode)');
+        }
+        else {
+            // For headphone mode, play at normal volume
+            audio.volume = 1.0;
+            logToDebug('🔊 Playing translated audio (headphone mode)');
+        }
+        await audio.play();
+    }
+    catch (error) {
+        console.error('Failed to play real-time audio:', error);
+        logToDebug(`❌ Audio playback failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+}
+// Play real-time translation audio with feedback prevention
+async function playRealTimeTranslationAudio(audioData, outputToVirtualMic) {
+    try {
+        // Temporarily pause audio capture to prevent feedback
+        const wasCapturing = mediaRecorder && mediaRecorder.state === 'recording' && isTranslating;
+        if (wasCapturing) {
+            logToDebug('⏸️ Temporarily pausing audio capture to prevent feedback');
+            try {
+                mediaRecorder.pause();
+            }
+            catch (pauseError) {
+                console.warn('⚠️ Failed to pause MediaRecorder:', pauseError);
+            }
+        }
+        // Convert array back to ArrayBuffer
+        const audioBuffer = new Uint8Array(audioData).buffer;
+        const audioBlob = new Blob([audioBuffer], { type: 'audio/mpeg' });
+        // Create audio element and play
+        const audio = new Audio();
+        const url = URL.createObjectURL(audioBlob);
+        audio.onended = () => {
+            URL.revokeObjectURL(url);
+            // Resume audio capture after playback ends
+            if (wasCapturing && mediaRecorder && mediaRecorder.state === 'paused' && isTranslating) {
+                setTimeout(() => {
+                    if (mediaRecorder && mediaRecorder.state === 'paused' && isTranslating) {
+                        logToDebug('▶️ Resuming audio capture after playback');
+                        try {
+                            mediaRecorder.resume();
+                        }
+                        catch (resumeError) {
+                            console.warn('⚠️ Failed to resume MediaRecorder:', resumeError);
+                        }
+                    }
+                }, 500); // Small delay to ensure audio has finished
+            }
+        };
+        audio.onerror = (error) => {
+            URL.revokeObjectURL(url);
+            console.error('Real-time audio playback error:', error);
+            // Resume capture even on error
+            if (wasCapturing && mediaRecorder && mediaRecorder.state === 'paused' && isTranslating) {
+                try {
+                    mediaRecorder.resume();
+                }
+                catch (resumeError) {
+                    console.warn('⚠️ Failed to resume MediaRecorder after error:', resumeError);
+                }
+            }
+        };
+        audio.src = url;
+        if (outputToVirtualMic) {
+            // For virtual microphone mode, play at lower volume
+            audio.volume = 0.7;
+            logToDebug('🎤 Playing real-time translated audio (virtual microphone mode)');
+        }
+        else {
+            // For headphone mode, play at normal volume
+            audio.volume = 1.0;
+            logToDebug('🔊 Playing real-time translated audio (headphone mode)');
+        }
+        await audio.play();
+    }
+    catch (error) {
+        console.error('Failed to play real-time translation audio:', error);
+        logToDebug(`❌ Real-time translation audio playback failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        // Resume capture on error
+        if (mediaRecorder && mediaRecorder.state === 'paused') {
+            mediaRecorder.resume();
+        }
+    }
+}
 function initializeEventListeners() {
     // Start/Stop button
     startButton.addEventListener('click', toggleTranslation);
@@ -58,29 +327,28 @@ function initializeEventListeners() {
     languageSelect.addEventListener('change', onLanguageChange);
     // Voice selection
     voiceSelect.addEventListener('change', onVoiceChange);
+    // Live translation controls
+    changeKeybindBtn.addEventListener('click', showKeybindModal);
+    // Keyboard event listeners for push-to-talk
+    document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('keyup', handleKeyUp);
 }
 async function toggleTranslation() {
     try {
         if (isTranslating) {
-            // Stop translation
+            // Stop push-to-talk mode
             startButton.disabled = true;
             startButton.textContent = '⏹️ Stopping...';
-            const response = await window.electronAPI.invoke('pipeline:stop', {
-                id: Date.now().toString(),
-                timestamp: Date.now(),
-                payload: null
-            });
-            if (response.success) {
-                isTranslating = false;
-                startButton.textContent = '▶️ Start Translation';
-                startButton.classList.remove('active');
-                startButton.disabled = false;
-                processingStatus.textContent = 'Idle';
-                logToDebug('Translation stopped');
-            }
-            else {
-                throw new Error(response.error || 'Failed to stop translation');
-            }
+            isTranslating = false;
+            startButton.textContent = '▶️ Start Translation';
+            startButton.classList.remove('active');
+            startButton.disabled = false;
+            processingStatus.textContent = 'Idle';
+            logToDebug('Push-to-talk mode stopped');
+            // Hide live translation panel
+            liveTranslationPanel.style.display = 'none';
+            // Clean up audio stream
+            await cleanupAudioStream();
         }
         else {
             // Validate configuration before starting
@@ -93,32 +361,19 @@ async function toggleTranslation() {
             if (!voiceSelect.value) {
                 throw new Error('Please select a voice');
             }
-            // Start translation
+            // Start push-to-talk mode (no need for pipeline:start)
             startButton.disabled = true;
             startButton.textContent = '▶️ Starting...';
-            const response = await window.electronAPI.invoke('pipeline:start', {
-                id: Date.now().toString(),
-                timestamp: Date.now(),
-                payload: {
-                    microphoneId: microphoneSelect.value,
-                    targetLanguage: languageSelect.value,
-                    voiceId: voiceSelect.value,
-                    outputToVirtualMic: true // Real-time mode outputs to virtual microphone
-                }
-            });
-            if (response.success) {
-                isTranslating = true;
-                startButton.textContent = '⏹️ Stop Translation';
-                startButton.classList.add('active');
-                startButton.disabled = false;
-                processingStatus.textContent = 'Active';
-                logToDebug('Translation started - listening for audio...');
-                // Set up real-time status updates
-                setupTranslationStatusUpdates();
-            }
-            else {
-                throw new Error(response.error || 'Failed to start translation');
-            }
+            // Just initialize audio stream for push-to-talk - no real-time orchestrator needed
+            await initializeAudioStream();
+            isTranslating = true;
+            startButton.textContent = '⏹️ Stop Translation';
+            startButton.classList.add('active');
+            startButton.disabled = false;
+            processingStatus.textContent = 'Push-to-Talk Ready';
+            logToDebug('Push-to-talk mode started - hold spacebar to record');
+            // Show live translation panel
+            liveTranslationPanel.style.display = 'block';
         }
         updateStatusIndicator();
     }
@@ -1043,5 +1298,623 @@ async function playAudioInRenderer(audioBufferArray) {
         console.error('❌ Audio renderer error:', error);
         throw new Error(`Failed to play audio in renderer: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
+}
+// ===== LIVE TRANSLATION FUNCTIONS =====
+async function initializeRealTimeAudioStream() {
+    try {
+        if (!microphoneSelect.value) {
+            throw new Error('Please select a microphone first');
+        }
+        // Get audio stream with optimal settings for real-time processing
+        audioStream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+                deviceId: microphoneSelect.value,
+                sampleRate: 16000,
+                channelCount: 1,
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true
+            }
+        });
+        // Use MediaRecorder for simple continuous audio capture
+        // Try different formats for better Whisper compatibility
+        let mimeType = 'audio/webm;codecs=opus';
+        if (!MediaRecorder.isTypeSupported(mimeType)) {
+            mimeType = 'audio/webm';
+        }
+        if (!MediaRecorder.isTypeSupported(mimeType)) {
+            mimeType = 'audio/mp4';
+        }
+        mediaRecorder = new MediaRecorder(audioStream, { mimeType });
+        // Clear any existing onstop handler to prevent conflicts with push-to-talk
+        mediaRecorder.onstop = null;
+        // Process audio chunks as they become available
+        mediaRecorder.ondataavailable = async (event) => {
+            if (!isTranslating || event.data.size === 0)
+                return;
+            // Prevent concurrent audio processing
+            if (isProcessingAudio) {
+                logToDebug('🔒 Skipping audio chunk - already processing another chunk');
+                return;
+            }
+            // Skip very small audio chunks (likely silence)
+            if (event.data.size < 10000) { // Less than ~10KB is likely silence
+                logToDebug('🔇 Skipping small audio chunk (likely silence)');
+                return;
+            }
+            isProcessingAudio = true;
+            try {
+                // Convert blob to array buffer
+                const arrayBuffer = await event.data.arrayBuffer();
+                const audioData = Array.from(new Uint8Array(arrayBuffer));
+                logToDebug(`🎤 Processing audio chunk: ${event.data.size} bytes`);
+                // Send to main process for transcription and translation
+                await window.electronAPI.invoke('speech:transcribe', {
+                    id: Date.now().toString(),
+                    timestamp: Date.now(),
+                    payload: {
+                        audioData: audioData,
+                        language: 'auto'
+                    }
+                });
+            }
+            catch (error) {
+                console.error('Error processing audio chunk:', error);
+                logToDebug(`❌ Audio processing error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            }
+            finally {
+                // Always clear the processing flag
+                isProcessingAudio = false;
+            }
+        };
+        // Start recording in chunks (every 10 seconds for real-time processing)
+        mediaRecorder.start(10000);
+        logToDebug('✅ Real-time audio stream initialized with MediaRecorder');
+        recordingText.textContent = 'Listening continuously...';
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        logToDebug(`❌ Failed to initialize real-time audio stream: ${errorMessage}`);
+        throw error;
+    }
+}
+// Restart real-time audio capture to prevent corruption
+async function restartRealTimeAudioCapture() {
+    try {
+        if (!isTranslating) {
+            logToDebug('⚠️ Not restarting audio capture - translation not active');
+            return;
+        }
+        logToDebug('🔄 Restarting real-time audio capture...');
+        // Use the existing audio stream if it's still active
+        if (!audioStream || audioStream.getTracks().some(track => track.readyState === 'ended')) {
+            // Get fresh audio stream
+            audioStream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    deviceId: microphoneSelect.value,
+                    sampleRate: 16000,
+                    channelCount: 1,
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true
+                }
+            });
+        }
+        // Create new MediaRecorder
+        let mimeType = 'audio/webm;codecs=opus';
+        if (!MediaRecorder.isTypeSupported(mimeType)) {
+            mimeType = 'audio/webm';
+        }
+        if (!MediaRecorder.isTypeSupported(mimeType)) {
+            mimeType = 'audio/mp4';
+        }
+        mediaRecorder = new MediaRecorder(audioStream, { mimeType });
+        // Clear any existing onstop handler to prevent conflicts with push-to-talk
+        mediaRecorder.onstop = null;
+        // Set up the data handler again
+        mediaRecorder.ondataavailable = async (event) => {
+            if (!isTranslating || event.data.size === 0)
+                return;
+            // Prevent concurrent audio processing
+            if (isProcessingAudio) {
+                logToDebug('🔒 Skipping audio chunk - already processing another chunk');
+                return;
+            }
+            // Skip very small audio chunks (likely silence)
+            if (event.data.size < 10000) { // Less than ~10KB is likely silence
+                logToDebug('🔇 Skipping small audio chunk (likely silence)');
+                return;
+            }
+            isProcessingAudio = true;
+            try {
+                // Convert blob to array buffer
+                const arrayBuffer = await event.data.arrayBuffer();
+                const audioData = Array.from(new Uint8Array(arrayBuffer));
+                logToDebug(`🎤 Processing audio chunk: ${event.data.size} bytes`);
+                // Send to main process for transcription and translation
+                await window.electronAPI.invoke('speech:transcribe', {
+                    id: Date.now().toString(),
+                    timestamp: Date.now(),
+                    payload: {
+                        audioData: audioData,
+                        language: 'auto'
+                    }
+                });
+            }
+            catch (error) {
+                console.error('Error processing audio chunk:', error);
+                logToDebug(`❌ Audio processing error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            }
+            finally {
+                // Always clear the processing flag
+                isProcessingAudio = false;
+            }
+        };
+        // Start recording in chunks
+        mediaRecorder.start(10000);
+        logToDebug('✅ Real-time audio capture restarted successfully');
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        logToDebug(`❌ Failed to restart real-time audio capture: ${errorMessage}`);
+        console.error('Restart audio capture error:', error);
+    }
+}
+async function initializeAudioStream() {
+    try {
+        if (!microphoneSelect.value) {
+            throw new Error('Please select a microphone first');
+        }
+        audioStream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+                deviceId: microphoneSelect.value,
+                sampleRate: 16000,
+                channelCount: 1,
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true
+            }
+        });
+        logToDebug('✅ Audio stream initialized for live translation');
+        recordingText.textContent = `Hold ${currentKeybind} to record`;
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        logToDebug(`❌ Failed to initialize audio stream: ${errorMessage}`);
+        throw error;
+    }
+}
+async function cleanupAudioStream() {
+    try {
+        if (isRecording) {
+            await stopRecording();
+        }
+        // Clean up MediaRecorder
+        if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+            mediaRecorder.stop();
+            mediaRecorder = null;
+        }
+        if (audioStream) {
+            audioStream.getTracks().forEach(track => track.stop());
+            audioStream = null;
+        }
+        logToDebug('✅ Audio stream cleaned up');
+    }
+    catch (error) {
+        logToDebug(`⚠️ Error during audio cleanup: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+}
+function handleKeyDown(event) {
+    if (!isTranslating || isRecording)
+        return;
+    const keyPressed = event.code;
+    if (keyPressed === currentKeybind) {
+        event.preventDefault();
+        startRecording();
+    }
+}
+function handleKeyUp(event) {
+    if (!isTranslating || !isRecording)
+        return;
+    const keyPressed = event.code;
+    if (keyPressed === currentKeybind) {
+        event.preventDefault();
+        stopRecording();
+    }
+}
+async function startRecording() {
+    if (!audioStream || isRecording)
+        return;
+    try {
+        isRecording = true;
+        audioChunks = [];
+        // Update UI
+        const recordingDot = document.querySelector('.recording-dot');
+        recordingDot.classList.add('active');
+        recordingText.textContent = 'Recording... (release key to translate)';
+        originalTextDiv.textContent = 'Listening...';
+        originalTextDiv.classList.add('processing');
+        translatedTextDiv.textContent = 'Waiting for speech...';
+        translatedTextDiv.classList.add('empty');
+        // Start recording
+        mediaRecorder = new MediaRecorder(audioStream, {
+            mimeType: 'audio/webm;codecs=opus'
+        });
+        mediaRecorder.ondataavailable = (event) => {
+            if (event.data.size > 0) {
+                audioChunks.push(event.data);
+            }
+        };
+        mediaRecorder.onstop = async () => {
+            await processRecordedAudio();
+        };
+        mediaRecorder.start();
+        logToDebug('🎤 Recording started');
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        logToDebug(`❌ Failed to start recording: ${errorMessage}`);
+        isRecording = false;
+        updateRecordingUI(false);
+    }
+}
+async function stopRecording() {
+    if (!mediaRecorder || !isRecording)
+        return;
+    try {
+        isRecording = false;
+        // Update UI
+        const recordingDot = document.querySelector('.recording-dot');
+        recordingDot.classList.remove('active');
+        recordingText.textContent = 'Processing...';
+        logToDebug('🎤 Stopping recording...');
+        // Stop recording
+        mediaRecorder.stop();
+        logToDebug('🎤 Recording stopped, waiting for processing...');
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        logToDebug(`❌ Failed to stop recording: ${errorMessage}`);
+        console.error('Stop recording error:', error);
+        updateRecordingUI(false);
+    }
+}
+async function processRecordedAudio() {
+    try {
+        // Only process if we have recorded audio chunks (push-to-talk mode)
+        // isTranslating just means push-to-talk is enabled, not that we're in continuous mode
+        logToDebug('🔄 Starting audio processing...');
+        if (audioChunks.length === 0) {
+            logToDebug('⚠️ No audio data recorded');
+            updateRecordingUI(false);
+            return;
+        }
+        // Create audio blob
+        const audioBlob = new Blob(audioChunks, { type: 'audio/webm;codecs=opus' });
+        logToDebug(`📊 Audio recorded: ${audioBlob.size} bytes`);
+        // Update UI
+        recordingText.textContent = 'Transcribing...';
+        originalTextDiv.textContent = 'Converting speech to text...';
+        try {
+            // Send to speech-to-text using a separate push-to-talk endpoint
+            logToDebug('🎤 Starting push-to-talk speech-to-text...');
+            const transcription = await speechToTextPushToTalk(await audioBlob.arrayBuffer());
+            logToDebug(`📝 Transcription result: "${transcription}"`);
+            if (!transcription || transcription.trim().length === 0) {
+                logToDebug('⚠️ No speech detected in recording');
+                originalTextDiv.textContent = 'No speech detected';
+                originalTextDiv.classList.remove('processing');
+                originalTextDiv.classList.add('empty');
+                updateRecordingUI(false);
+                return;
+            }
+            // Update UI with transcription
+            originalTextDiv.textContent = transcription;
+            originalTextDiv.classList.remove('processing', 'empty');
+        }
+        catch (sttError) {
+            logToDebug(`❌ Speech-to-text failed: ${sttError instanceof Error ? sttError.message : 'Unknown error'}`);
+            console.error('STT Error:', sttError);
+            originalTextDiv.textContent = `STT Error: ${sttError instanceof Error ? sttError.message : 'Unknown error'}`;
+            originalTextDiv.classList.remove('processing');
+            updateRecordingUI(false);
+            return;
+        }
+        try {
+            // Translate the text
+            recordingText.textContent = 'Translating...';
+            translatedTextDiv.textContent = 'Translating to target language...';
+            translatedTextDiv.classList.add('processing');
+            logToDebug('🌍 Starting translation...');
+            const transcription = originalTextDiv.textContent;
+            const translationResult = await translateText(transcription);
+            logToDebug(`🌍 Translation result: "${translationResult}"`);
+            // Update UI with translation
+            translatedTextDiv.textContent = translationResult;
+            translatedTextDiv.classList.remove('processing', 'empty');
+        }
+        catch (translationError) {
+            logToDebug(`❌ Translation failed: ${translationError instanceof Error ? translationError.message : 'Unknown error'}`);
+            console.error('Translation Error:', translationError);
+            translatedTextDiv.textContent = `Translation Error: ${translationError instanceof Error ? translationError.message : 'Unknown error'}`;
+            translatedTextDiv.classList.remove('processing');
+            updateRecordingUI(false);
+            return;
+        }
+        try {
+            // Synthesize and play audio
+            recordingText.textContent = 'Speaking...';
+            logToDebug('🔊 Starting audio synthesis...');
+            const translationResult = translatedTextDiv.textContent;
+            await synthesizeAndPlay(translationResult);
+            logToDebug('🔊 Audio synthesis completed');
+        }
+        catch (ttsError) {
+            logToDebug(`❌ TTS failed: ${ttsError instanceof Error ? ttsError.message : 'Unknown error'}`);
+            console.error('TTS Error:', ttsError);
+            // Don't return here - the translation was successful even if TTS failed
+        }
+        // Reset UI
+        updateRecordingUI(false);
+        logToDebug('✅ Live translation completed successfully');
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        logToDebug(`❌ Failed to process recorded audio: ${errorMessage}`);
+        console.error('Process audio error:', error);
+        console.error('Error stack:', error instanceof Error ? error.stack : 'No stack trace');
+        originalTextDiv.textContent = `Error: ${errorMessage}`;
+        originalTextDiv.classList.remove('processing');
+        translatedTextDiv.textContent = 'Processing failed';
+        translatedTextDiv.classList.remove('processing');
+        updateRecordingUI(false);
+    }
+}
+// Push-to-talk speech-to-text (separate from real-time)
+async function speechToTextPushToTalk(audioBuffer) {
+    try {
+        console.log('🎤 Starting push-to-talk speech-to-text...');
+        console.log(`📊 Input audio buffer: ${audioBuffer.byteLength} bytes`);
+        // Convert directly to array for IPC transfer
+        const audioDataArray = Array.from(new Uint8Array(audioBuffer));
+        console.log(`📊 Audio data array: ${audioDataArray.length} bytes`);
+        // Send to main process for Whisper transcription (separate endpoint)
+        console.log('📡 Sending to main process for push-to-talk transcription...');
+        const response = await window.electronAPI.invoke('speech:transcribe-push-to-talk', {
+            id: Date.now().toString(),
+            timestamp: Date.now(),
+            payload: {
+                audioData: audioDataArray,
+                language: 'auto' // Auto-detect language
+            }
+        });
+        console.log('📡 Received response from main process:', response.success);
+        if (response.success) {
+            const text = response.payload.text || '';
+            console.log(`✅ Push-to-talk transcription successful: "${text}"`);
+            return text;
+        }
+        else {
+            console.error('❌ Push-to-talk transcription failed:', response.error);
+            throw new Error(response.error || 'Speech-to-text failed');
+        }
+    }
+    catch (error) {
+        console.error('❌ Push-to-talk speech-to-text error:', error);
+        console.error('Error stack:', error instanceof Error ? error.stack : 'No stack trace');
+        throw new Error(`Speech recognition failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+}
+async function speechToText(audioBuffer) {
+    try {
+        console.log('🎤 Starting simplified speech-to-text...');
+        console.log(`📊 Input audio buffer: ${audioBuffer.byteLength} bytes`);
+        // For now, let's skip the complex audio conversion and just use the original audio
+        // Convert directly to array for IPC transfer
+        const audioDataArray = Array.from(new Uint8Array(audioBuffer));
+        console.log(`📊 Audio data array: ${audioDataArray.length} bytes`);
+        // Send to main process for Whisper transcription
+        console.log('📡 Sending to main process for transcription...');
+        const response = await window.electronAPI.invoke('speech:transcribe', {
+            id: Date.now().toString(),
+            timestamp: Date.now(),
+            payload: {
+                audioData: audioDataArray,
+                language: 'auto' // Auto-detect language
+            }
+        });
+        console.log('📡 Received response from main process:', response.success);
+        if (response.success) {
+            const text = response.payload.text || '';
+            console.log(`✅ Transcription successful: "${text}"`);
+            return text;
+        }
+        else {
+            console.error('❌ Transcription failed:', response.error);
+            throw new Error(response.error || 'Speech-to-text failed');
+        }
+    }
+    catch (error) {
+        console.error('❌ Speech-to-text error:', error);
+        console.error('Error stack:', error instanceof Error ? error.stack : 'No stack trace');
+        throw new Error(`Speech recognition failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+}
+async function convertToWav(audioBlob) {
+    try {
+        console.log('🔄 Starting audio conversion...');
+        console.log(`📊 Input blob: ${audioBlob.size} bytes, type: ${audioBlob.type}`);
+        // Create audio context for conversion
+        const audioContext = new AudioContext({ sampleRate: 16000 });
+        console.log('✅ Audio context created');
+        // Decode the audio data
+        const arrayBuffer = await audioBlob.arrayBuffer();
+        console.log(`📊 Array buffer: ${arrayBuffer.byteLength} bytes`);
+        const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+        console.log(`📊 Audio buffer: ${audioBuffer.length} samples, ${audioBuffer.sampleRate}Hz, ${audioBuffer.numberOfChannels} channels`);
+        // Convert to 16kHz mono WAV (optimal for Whisper)
+        const length = audioBuffer.length;
+        const sampleRate = 16000;
+        const buffer = new ArrayBuffer(44 + length * 2);
+        const view = new DataView(buffer);
+        // WAV header
+        const writeString = (offset, string) => {
+            for (let i = 0; i < string.length; i++) {
+                view.setUint8(offset + i, string.charCodeAt(i));
+            }
+        };
+        writeString(0, 'RIFF');
+        view.setUint32(4, 36 + length * 2, true);
+        writeString(8, 'WAVE');
+        writeString(12, 'fmt ');
+        view.setUint32(16, 16, true);
+        view.setUint16(20, 1, true);
+        view.setUint16(22, 1, true);
+        view.setUint32(24, sampleRate, true);
+        view.setUint32(28, sampleRate * 2, true);
+        view.setUint16(32, 2, true);
+        view.setUint16(34, 16, true);
+        writeString(36, 'data');
+        view.setUint32(40, length * 2, true);
+        // Convert audio data to 16-bit PCM
+        const channelData = audioBuffer.getChannelData(0);
+        let offset = 44;
+        for (let i = 0; i < length; i++) {
+            const sample = Math.max(-1, Math.min(1, channelData[i]));
+            view.setInt16(offset, sample * 0x7FFF, true);
+            offset += 2;
+        }
+        await audioContext.close();
+        console.log(`✅ Audio conversion complete: ${buffer.byteLength} bytes`);
+        return new Blob([buffer], { type: 'audio/wav' });
+    }
+    catch (error) {
+        console.error('❌ Audio conversion error:', error);
+        console.error('Error details:', error instanceof Error ? error.stack : 'No stack trace');
+        // Fallback: return original blob
+        console.log('🔄 Using original blob as fallback');
+        return audioBlob;
+    }
+}
+async function translateText(text) {
+    try {
+        const response = await window.electronAPI.invoke('pipeline:test', {
+            id: Date.now().toString(),
+            timestamp: Date.now(),
+            payload: {
+                text: text,
+                targetLanguage: languageSelect.value || 'es',
+                voiceId: voiceSelect.value || 'pNInz6obpgDQGcFmaJgB',
+                outputToHeadphones: false // Don't play audio yet
+            }
+        });
+        if (response.success) {
+            return response.payload.translatedText;
+        }
+        else {
+            throw new Error(response.error || 'Translation failed');
+        }
+    }
+    catch (error) {
+        throw new Error(`Translation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+}
+async function synthesizeAndPlay(text) {
+    try {
+        const response = await window.electronAPI.invoke('pipeline:test', {
+            id: Date.now().toString(),
+            timestamp: Date.now(),
+            payload: {
+                text: text,
+                targetLanguage: languageSelect.value || 'es',
+                voiceId: voiceSelect.value || 'pNInz6obpgDQGcFmaJgB',
+                outputToHeadphones: false // We'll handle playback here
+            }
+        });
+        if (response.success && response.payload.audioBuffer) {
+            // Play through virtual microphone (for other apps to hear)
+            await playAudioInRenderer(response.payload.audioBuffer);
+            logToDebug('🔊 Translated audio played through virtual microphone');
+        }
+        else {
+            throw new Error(response.error || 'TTS synthesis failed');
+        }
+    }
+    catch (error) {
+        logToDebug(`⚠️ Audio synthesis failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+}
+function updateRecordingUI(isActive) {
+    const recordingDot = document.querySelector('.recording-dot');
+    if (isActive) {
+        recordingDot.classList.add('active');
+        recordingText.textContent = 'Recording...';
+    }
+    else {
+        recordingDot.classList.remove('active');
+        recordingText.textContent = `Hold ${currentKeybind} to record`;
+    }
+}
+function showKeybindModal() {
+    const modal = document.createElement('div');
+    modal.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0,0,0,0.5);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 1000;
+    `;
+    const modalContent = document.createElement('div');
+    modalContent.style.cssText = `
+        background: white;
+        padding: 2rem;
+        border-radius: 12px;
+        width: 400px;
+        max-width: 90%;
+        text-align: center;
+    `;
+    modalContent.innerHTML = `
+        <h2>Change Push-to-Talk Key</h2>
+        <p>Press any key to set it as your push-to-talk key</p>
+        <div style="margin: 2rem 0;">
+            <div style="padding: 1rem; background: #f5f5f5; border-radius: 8px; font-size: 1.2rem;">
+                Current: <kbd style="background: #667eea; color: white; padding: 0.5rem; border-radius: 4px;">${currentKeybind}</kbd>
+            </div>
+        </div>
+        <button id="cancel-keybind" style="padding: 0.5rem 1rem; margin-right: 1rem;">Cancel</button>
+        <button id="reset-keybind" style="padding: 0.5rem 1rem; background: #667eea; color: white; border: none; border-radius: 4px;">Reset to Space</button>
+    `;
+    modal.appendChild(modalContent);
+    document.body.appendChild(modal);
+    let keyPressed = false;
+    const keyListener = (event) => {
+        if (!keyPressed) {
+            keyPressed = true;
+            currentKeybind = event.code;
+            currentKeybindSpan.textContent = event.code;
+            recordingText.textContent = `Hold ${currentKeybind} to record`;
+            logToDebug(`🔧 Push-to-talk key changed to: ${currentKeybind}`);
+            document.body.removeChild(modal);
+            document.removeEventListener('keydown', keyListener);
+        }
+    };
+    document.addEventListener('keydown', keyListener);
+    modalContent.querySelector('#cancel-keybind')?.addEventListener('click', () => {
+        document.body.removeChild(modal);
+        document.removeEventListener('keydown', keyListener);
+    });
+    modalContent.querySelector('#reset-keybind')?.addEventListener('click', () => {
+        currentKeybind = 'Space';
+        currentKeybindSpan.textContent = 'SPACE';
+        recordingText.textContent = `Hold ${currentKeybind} to record`;
+        logToDebug('🔧 Push-to-talk key reset to Space');
+        document.body.removeChild(modal);
+        document.removeEventListener('keydown', keyListener);
+    });
 }
 //# sourceMappingURL=renderer.js.map

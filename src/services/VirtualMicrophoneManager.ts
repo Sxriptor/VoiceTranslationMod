@@ -48,8 +48,10 @@ export class VirtualMicrophoneManager implements VirtualMicrophoneService {
         
         if (!isBrowserEnvironment) {
             console.log('🔊 Virtual microphone output skipped - running in main process (Node.js environment)');
-            console.log('   Virtual microphone would be active in the renderer process during actual usage');
-            return; // Don't fail, just skip audio output in main process
+            console.log('   For real-time mode, audio would be sent to virtual microphone in renderer process');
+            // For now, play audio in the app like test translation does
+            await this.playAudio({ audioBuffer });
+            return;
         }
 
         try {

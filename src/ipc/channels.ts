@@ -10,7 +10,8 @@ export const AUDIO_CHANNELS = {
   STOP_CAPTURE: 'audio:stop-capture',
   AUDIO_DATA: 'audio:data',
   AUDIO_LEVEL: 'audio:level',
-  DEVICE_CHANGED: 'audio:device-changed'
+  DEVICE_CHANGED: 'audio:device-changed',
+  STREAM: 'audio:stream'
 } as const;
 
 // Configuration channels
@@ -33,6 +34,13 @@ export const PIPELINE_CHANNELS = {
   PROCESSING_UPDATE: 'pipeline:processing-update',
   PROCESSING_RESULT: 'pipeline:processing-result',
   PROCESSING_ERROR: 'pipeline:processing-error'
+} as const;
+
+// Speech-to-text channels
+export const SPEECH_CHANNELS = {
+  TRANSCRIBE: 'speech:transcribe',
+  TRANSCRIBE_RESPONSE: 'speech:transcribe-response',
+  TRANSCRIBE_PUSH_TO_TALK: 'speech:transcribe-push-to-talk'
 } as const;
 
 // Service status channels
@@ -78,6 +86,7 @@ export const IPC_CHANNELS = {
   ...AUDIO_CHANNELS,
   ...CONFIG_CHANNELS,
   ...PIPELINE_CHANNELS,
+  ...SPEECH_CHANNELS,
   ...SERVICE_CHANNELS,
   ...ERROR_CHANNELS,
   ...DEBUG_CHANNELS,

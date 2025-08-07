@@ -21,6 +21,32 @@ electron_1.contextBridge.exposeInMainWorld('electronAPI', {
     // Send messages without expecting a response
     send: (channel, ...args) => {
         electron_1.ipcRenderer.send(channel, ...args);
+    },
+    // Real-time audio playback listener
+    onRealTimeAudioPlayback: null,
+    // Set up real-time audio playback
+    setupRealTimeAudioPlayback: (callback) => {
+        electron_1.ipcRenderer.on('realtime-audio-playback', (event, data) => {
+            callback(data);
+        });
+    },
+    // Set up test audio playback
+    setupTestAudioPlayback: (callback) => {
+        electron_1.ipcRenderer.on('test-audio-playback', (event, data) => {
+            callback(data);
+        });
+    },
+    // Set up real-time translation audio playback
+    setupRealTimeTranslationAudio: (callback) => {
+        electron_1.ipcRenderer.on('realtime-translation-audio', (event, data) => {
+            callback(data);
+        });
+    },
+    // Set up clear audio capture listener
+    setupClearAudioCapture: (callback) => {
+        electron_1.ipcRenderer.on('clear-audio-capture', (event, data) => {
+            callback(data);
+        });
     }
 });
 //# sourceMappingURL=preload.js.map

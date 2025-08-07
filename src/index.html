@@ -221,6 +221,123 @@
             cursor: not-allowed;
             transform: none;
         }
+
+        /* Live Translation Panel */
+        .live-translation-panel {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 16px;
+            padding: 1.5rem;
+            margin-top: 1rem;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(10px);
+        }
+
+        .translation-status {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+        }
+
+        .keybind-info {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .keybind-info kbd {
+            background: #667eea;
+            color: white;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 0.9rem;
+        }
+
+        .change-keybind-btn {
+            background: rgba(102, 126, 234, 0.1);
+            border: 1px solid #667eea;
+            color: #667eea;
+            padding: 0.25rem 0.75rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.8rem;
+        }
+
+        .change-keybind-btn:hover {
+            background: rgba(102, 126, 234, 0.2);
+        }
+
+        .recording-indicator {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .recording-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #ccc;
+            transition: all 0.3s ease;
+        }
+
+        .recording-dot.active {
+            background: #ff4444;
+            animation: pulse 1s infinite;
+        }
+
+        .translation-display {
+            margin-top: 1rem;
+        }
+
+        .translation-box {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+        }
+
+        .translation-section {
+            background: rgba(0, 0, 0, 0.02);
+            border-radius: 8px;
+            padding: 1rem;
+        }
+
+        .translation-section label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            color: #555;
+        }
+
+        .text-display {
+            min-height: 60px;
+            padding: 0.75rem;
+            background: white;
+            border-radius: 6px;
+            border: 1px solid #e1e5e9;
+            font-size: 0.95rem;
+            line-height: 1.4;
+            color: #333;
+        }
+
+        .text-display.empty {
+            color: #999;
+            font-style: italic;
+        }
+
+        .text-display.processing {
+            background: rgba(102, 126, 234, 0.05);
+            border-color: #667eea;
+        }
+
+        @media (max-width: 768px) {
+            .translation-box {
+                grid-template-columns: 1fr;
+            }
+        }
     </style>
 </head>
 <body>
@@ -290,6 +407,33 @@
                         <span class="status-indicator" id="status-indicator"></span>
                         Start Translation
                     </button>
+                </div>
+
+                <!-- Live Translation Status -->
+                <div id="live-translation-panel" class="live-translation-panel" style="display: none;">
+                    <div class="translation-status">
+                        <div class="keybind-info">
+                            <span>🎤 Hold <kbd id="current-keybind">SPACE</kbd> to record</span>
+                            <button id="change-keybind-btn" class="change-keybind-btn">Change Key</button>
+                        </div>
+                        <div class="recording-indicator" id="recording-indicator">
+                            <span class="recording-dot"></span>
+                            <span id="recording-text">Ready to record...</span>
+                        </div>
+                    </div>
+                    
+                    <div class="translation-display">
+                        <div class="translation-box">
+                            <div class="translation-section">
+                                <label>🎤 What you said:</label>
+                                <div id="original-text" class="text-display">Waiting for input...</div>
+                            </div>
+                            <div class="translation-section">
+                                <label>🌍 Translation:</label>
+                                <div id="translated-text" class="text-display">Ready to translate...</div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
 

@@ -3,7 +3,7 @@
  * IPC channel definitions for communication between main and renderer processes
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.IPC_CHANNELS = exports.VOICE_CHANNELS = exports.PERFORMANCE_CHANNELS = exports.DEBUG_CHANNELS = exports.ERROR_CHANNELS = exports.SERVICE_CHANNELS = exports.PIPELINE_CHANNELS = exports.CONFIG_CHANNELS = exports.AUDIO_CHANNELS = void 0;
+exports.IPC_CHANNELS = exports.VOICE_CHANNELS = exports.PERFORMANCE_CHANNELS = exports.DEBUG_CHANNELS = exports.ERROR_CHANNELS = exports.SERVICE_CHANNELS = exports.SPEECH_CHANNELS = exports.PIPELINE_CHANNELS = exports.CONFIG_CHANNELS = exports.AUDIO_CHANNELS = void 0;
 // Audio-related channels
 exports.AUDIO_CHANNELS = {
     GET_DEVICES: 'audio:get-devices',
@@ -12,7 +12,8 @@ exports.AUDIO_CHANNELS = {
     STOP_CAPTURE: 'audio:stop-capture',
     AUDIO_DATA: 'audio:data',
     AUDIO_LEVEL: 'audio:level',
-    DEVICE_CHANGED: 'audio:device-changed'
+    DEVICE_CHANGED: 'audio:device-changed',
+    STREAM: 'audio:stream'
 };
 // Configuration channels
 exports.CONFIG_CHANNELS = {
@@ -33,6 +34,12 @@ exports.PIPELINE_CHANNELS = {
     PROCESSING_UPDATE: 'pipeline:processing-update',
     PROCESSING_RESULT: 'pipeline:processing-result',
     PROCESSING_ERROR: 'pipeline:processing-error'
+};
+// Speech-to-text channels
+exports.SPEECH_CHANNELS = {
+    TRANSCRIBE: 'speech:transcribe',
+    TRANSCRIBE_RESPONSE: 'speech:transcribe-response',
+    TRANSCRIBE_PUSH_TO_TALK: 'speech:transcribe-push-to-talk'
 };
 // Service status channels
 exports.SERVICE_CHANNELS = {
@@ -72,6 +79,7 @@ exports.IPC_CHANNELS = {
     ...exports.AUDIO_CHANNELS,
     ...exports.CONFIG_CHANNELS,
     ...exports.PIPELINE_CHANNELS,
+    ...exports.SPEECH_CHANNELS,
     ...exports.SERVICE_CHANNELS,
     ...exports.ERROR_CHANNELS,
     ...exports.DEBUG_CHANNELS,
