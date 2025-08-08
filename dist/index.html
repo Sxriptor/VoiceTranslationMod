@@ -12,10 +12,19 @@
             box-sizing: border-box;
         }
 
+        :root {
+            --bg: #000;          /* page background */
+            --panel: #0a0a0a;     /* cards/panels */
+            --text: #f5f5f5;      /* primary text */
+            --muted: #c7c7c7;     /* secondary text */
+            --border: #262626;    /* borders */
+            --focus: #ffffff;     /* focus/accent (white) */
+        }
+
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: #333;
+            background: var(--bg);
+            color: var(--text);
             height: 100vh;
             overflow: hidden;
         }
@@ -27,32 +36,70 @@
         }
 
         .header {
-            background: rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(10px);
-            padding: 1rem 2rem;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+            background: var(--bg);
+            padding: 1rem 1rem;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
         }
 
         .header h1 {
-            color: white;
+            color: var(--text);
             font-size: 1.5rem;
             font-weight: 600;
         }
+
+        .sidebar-toggle {
+            background: transparent;
+            color: var(--text);
+            border: 1px solid var(--border);
+            padding: 0.5rem 0.75rem;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+        .sidebar-toggle:hover { background: #111; }
+
+        .content-container {
+            flex: 1;
+            display: flex;
+            min-height: 0;
+        }
+
+        .sidebar {
+            width: 260px;
+            background: var(--bg);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            transition: width 0.2s ease;
+        }
+        .sidebar.collapsed { width: 64px; }
+        .sidebar .brand { padding: 1rem; font-weight: 600; color: var(--muted); }
+        .sidebar .nav { padding: 0.5rem; display: flex; flex-direction: column; gap: 0.25rem; }
+        .sidebar .nav button {
+            display: flex; align-items: center; gap: 0.75rem;
+            padding: 0.625rem 0.75rem; width: 100%;
+            color: var(--text); background: transparent; border: none; text-align: left;
+            border-radius: 6px; cursor: pointer;
+        }
+        .sidebar .nav button:hover { background: #0f0f0f; }
+        .sidebar .nav .icon { width: 20px; display: inline-flex; justify-content: center; }
+        .sidebar.collapsed .label { display: none; }
 
         .main-content {
             flex: 1;
             display: flex;
             flex-direction: column;
-            padding: 2rem;
+            padding: 1.25rem 1.5rem;
             overflow-y: auto;
         }
 
         .control-panel {
-            background: rgba(255, 255, 255, 0.95);
-            border-radius: 16px;
-            padding: 2rem;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-            backdrop-filter: blur(10px);
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.25rem;
             margin-bottom: 1rem;
         }
 
@@ -71,14 +118,16 @@
             display: block;
             margin-bottom: 0.5rem;
             font-weight: 500;
-            color: #555;
+            color: var(--muted);
         }
 
         .control-group select,
         .control-group button {
             width: 100%;
-            padding: 0.75rem;
-            border: 2px solid #e1e5e9;
+            padding: 0.65rem 0.75rem;
+            border: 1px solid var(--border);
+            background: var(--bg);
+            color: var(--text);
             border-radius: 8px;
             font-size: 1rem;
             transition: all 0.2s ease;
@@ -87,8 +136,8 @@
         .control-group select:focus,
         .control-group button:focus {
             outline: none;
-            border-color: #667eea;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+            border-color: var(--focus);
+            box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.12);
         }
 
         .main-controls {
@@ -97,51 +146,41 @@
         }
 
         .start-button {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            padding: 1rem 3rem;
-            font-size: 1.2rem;
-            font-weight: 600;
-            border-radius: 50px;
+            background: #ffffff;
+            color: #000000;
+            border: 1px solid var(--border);
+            padding: 0.9rem 2rem;
+            font-size: 1.15rem;
+            font-weight: 700;
+            border-radius: 999px;
             cursor: pointer;
-            transition: all 0.3s ease;
-            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+            transition: all 0.15s ease;
         }
-
-        .start-button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
-        }
-
-        .start-button:active {
-            transform: translateY(0);
-        }
-
-        .start-button.active {
-            background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);
-        }
+        .start-button:hover { filter: brightness(0.9); }
+        .start-button.active { background: #000; color: #fff; border-color: #fff; }
 
         .status-indicator {
             display: inline-block;
             width: 12px;
             height: 12px;
             border-radius: 50%;
-            background: #ccc;
+            background: #777;
             margin-right: 0.5rem;
             animation: pulse 2s infinite;
         }
 
         .status-indicator.active {
-            background: #4CAF50;
+            background: #fff;
         }
 
         .status-indicator.error {
-            background: #f44336;
+            background: #000;
+            border: 2px solid #fff;
         }
 
         .status-indicator.warning {
-            background: #ff9800;
+            background: #111;
+            border: 1px dashed #fff;
         }
 
         .status-indicator.pulsing {
@@ -155,11 +194,12 @@
         }
 
         .debug-console {
-            background: rgba(0, 0, 0, 0.8);
-            color: #00ff00;
+            background: #000;
+            color: #fff;
             font-family: 'Courier New', monospace;
             font-size: 0.9rem;
             padding: 1rem;
+            border: 1px solid var(--border);
             border-radius: 8px;
             height: 200px;
             overflow-y: auto;
@@ -172,24 +212,23 @@
         }
 
         .footer {
-            background: rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(10px);
-            padding: 1rem 2rem;
-            border-top: 1px solid rgba(255, 255, 255, 0.2);
+            background: var(--bg);
+            padding: 0.9rem 1.25rem;
+            border-top: 1px solid var(--border);
             display: flex;
             justify-content: space-between;
             align-items: center;
         }
 
         .footer-status {
-            color: rgba(255, 255, 255, 0.8);
+            color: var(--muted);
             font-size: 0.9rem;
         }
 
         .debug-toggle {
-            background: rgba(255, 255, 255, 0.2);
-            color: white;
-            border: 1px solid rgba(255, 255, 255, 0.3);
+            background: transparent;
+            color: var(--text);
+            border: 1px solid var(--border);
             padding: 0.5rem 1rem;
             border-radius: 4px;
             cursor: pointer;
@@ -197,14 +236,14 @@
         }
 
         .debug-toggle:hover {
-            background: rgba(255, 255, 255, 0.3);
+            background: #111;
         }
 
         /* Custom voice modal styles */
         .voice-modal-input:focus {
             outline: none;
-            border-color: #667eea;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+            border-color: var(--focus);
+            box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.12);
         }
 
         .voice-modal-button {
@@ -213,7 +252,7 @@
 
         .voice-modal-button:hover {
             transform: translateY(-1px);
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+            box-shadow: 0 2px 8px rgba(255, 255, 255, 0.06);
         }
 
         .voice-modal-button:disabled {
@@ -224,12 +263,11 @@
 
         /* Live Translation Panel */
         .live-translation-panel {
-            background: rgba(255, 255, 255, 0.95);
-            border-radius: 16px;
-            padding: 1.5rem;
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.25rem;
             margin-top: 1rem;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-            backdrop-filter: blur(10px);
         }
 
         .translation-status {
@@ -300,7 +338,8 @@
         }
 
         .translation-section {
-            background: rgba(0, 0, 0, 0.02);
+            background: #0f0f0f;
+            border: 1px solid var(--border);
             border-radius: 8px;
             padding: 1rem;
         }
@@ -309,18 +348,18 @@
             display: block;
             font-weight: 600;
             margin-bottom: 0.5rem;
-            color: #555;
+            color: var(--muted);
         }
 
         .text-display {
             min-height: 60px;
             padding: 0.75rem;
-            background: white;
+            background: #000;
             border-radius: 6px;
-            border: 1px solid #e1e5e9;
+            border: 1px solid var(--border);
             font-size: 0.95rem;
             line-height: 1.4;
-            color: #333;
+            color: var(--text);
         }
 
         .text-display.empty {
@@ -329,8 +368,8 @@
         }
 
         .text-display.processing {
-            background: rgba(102, 126, 234, 0.05);
-            border-color: #667eea;
+            background: #0f0f0f;
+            border-color: #3a3a3a;
         }
 
         @media (max-width: 768px) {
@@ -340,13 +379,24 @@
         }
     </style>
 </head>
-<body>
+    <body>
     <div class="app-container">
         <header class="header">
+            <button id="sidebar-toggle" class="sidebar-toggle" title="Toggle sidebar">☰</button>
             <h1>🎙️ Real-Time Voice Translator</h1>
         </header>
 
-        <main class="main-content">
+        <div class="content-container">
+            <aside id="app-sidebar" class="sidebar">
+                <div class="brand">Menu</div>
+                <nav class="nav">
+                    <button id="sidebar-settings-button"><span class="icon">⚙️</span><span class="label">Settings</span></button>
+                    <button id="sidebar-logs-button"><span class="icon">🧾</span><span class="label">Logs</span></button>
+                    <button id="sidebar-about-button"><span class="icon">ℹ️</span><span class="label">About</span></button>
+                </nav>
+            </aside>
+
+            <main class="main-content">
             <div class="control-panel">
                 <div class="control-row">
                     <div class="control-group">
@@ -449,7 +499,8 @@
             <div id="debug-console" class="debug-console">
                 <div id="debug-output">Application initialized...</div>
             </div>
-        </main>
+            </main>
+        </div>
 
         <footer class="footer">
             <div class="footer-status">

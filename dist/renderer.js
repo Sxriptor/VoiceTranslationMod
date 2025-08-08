@@ -27,6 +27,12 @@ const debugOutput = document.getElementById('debug-output');
 const connectionStatus = document.getElementById('connection-status');
 const processingStatus = document.getElementById('processing-status');
 const statusIndicator = document.getElementById('status-indicator');
+// Sidebar elements
+const sidebarToggleButton = document.getElementById('sidebar-toggle');
+const appSidebar = document.getElementById('app-sidebar');
+const sidebarSettingsButton = document.getElementById('sidebar-settings-button');
+const sidebarLogsButton = document.getElementById('sidebar-logs-button');
+const sidebarAboutButton = document.getElementById('sidebar-about-button');
 // Application state
 let isTranslating = false;
 let isDebugVisible = false;
@@ -64,6 +70,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         setupRealTimeTranslationAudio();
         setupClearAudioCapture();
         await restoreOutputPreference();
+        await restoreSidebarPreference();
         logToDebug('Application initialized successfully');
     }
     catch (error) {
@@ -328,6 +335,21 @@ function initializeEventListeners() {
     refreshButton.addEventListener('click', refreshDevicesAndVoices);
     // Debug toggle
     debugToggle.addEventListener('click', toggleDebugConsole);
+    // Sidebar controls
+    if (sidebarToggleButton && appSidebar) {
+        sidebarToggleButton.addEventListener('click', toggleSidebar);
+    }
+    if (sidebarSettingsButton) {
+        sidebarSettingsButton.addEventListener('click', openSettings);
+    }
+    if (sidebarLogsButton) {
+        sidebarLogsButton.addEventListener('click', toggleDebugConsole);
+    }
+    if (sidebarAboutButton) {
+        sidebarAboutButton.addEventListener('click', () => {
+            alert('Real-Time Voice Translator\nBlack & White UI');
+        });
+    }
     // Device selection
     microphoneSelect.addEventListener('change', onMicrophoneChange);
     // Language selection
@@ -557,6 +579,47 @@ async function toggleDebugConsole() {
     catch (error) {
         logToDebug(`Error saving debug console preference: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
+}
+// Sidebar state persistence
+async function restoreSidebarPreference() {
+    try {
+        const response = await window.electronAPI.invoke('config:get', {
+            id: Date.now().toString(),
+            timestamp: Date.now(),
+            payload: null
+        });
+        if (response.success && response.payload?.uiSettings?.sidebarCollapsed !== undefined) {
+            const collapsed = !!response.payload.uiSettings.sidebarCollapsed;
+            setSidebarCollapsed(collapsed);
+        }
+    }
+    catch {
+        // ignore
+    }
+}
+function setSidebarCollapsed(collapsed) {
+    if (!appSidebar)
+        return;
+    if (collapsed) {
+        appSidebar.classList.add('collapsed');
+    }
+    else {
+        appSidebar.classList.remove('collapsed');
+    }
+}
+async function toggleSidebar() {
+    if (!appSidebar)
+        return;
+    const collapsed = !appSidebar.classList.contains('collapsed');
+    setSidebarCollapsed(collapsed);
+    try {
+        await window.electronAPI.invoke('config:set', {
+            id: Date.now().toString(),
+            timestamp: Date.now(),
+            payload: { uiSettings: { sidebarCollapsed: collapsed } }
+        });
+    }
+    catch { }
 }
 async function onMicrophoneChange() {
     const selectedDevice = microphoneSelect.value;
