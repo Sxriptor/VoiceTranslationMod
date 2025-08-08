@@ -49,6 +49,10 @@ export function registerIPCHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.TRANSCRIBE_PUSH_TO_TALK, handlePushToTalkTranscription);
   ipcMain.handle('audio:stream', handleAudioStream);
 
+  // Translation-only and TTS-only handlers
+  ipcMain.handle(IPC_CHANNELS.TRANSLATE_ONLY, handleTranslateOnly);
+  ipcMain.handle(IPC_CHANNELS.SYNTHESIZE_ONLY, handleSynthesizeOnly);
+
   // Service status handlers
   ipcMain.handle(IPC_CHANNELS.GET_SERVICE_STATUS, handleGetServiceStatus);
 
@@ -74,10 +78,67 @@ export function unregisterIPCHandlers(): void {
   
   // Remove all handlers
   Object.values(IPC_CHANNELS).forEach(channel => {
+    ipcMain.removeHandler(channel as any);
     ipcMain.removeAllListeners(channel);
   });
 
   console.log('IPC handlers unregistered');
+}
+
+// Minimal translate-only handler to ensure only translated text is returned
+async function handleTranslateOnly(
+  event: IpcMainInvokeEvent,
+  request: IPCRequest<{ text: string; targetLanguage: string; sourceLanguage?: string }>
+): Promise<IPCResponse<{ translatedText: string }>> {
+  try {
+    const configManager = ConfigurationManager.getInstance();
+    const { TranslationServiceManager } = await import('../services/TranslationServiceManager');
+    const translationService = new TranslationServiceManager(configManager);
+    const result = await translationService.translate(
+      request.payload.text,
+      request.payload.targetLanguage,
+      request.payload.sourceLanguage || 'en'
+    );
+    return {
+      id: request.id,
+      timestamp: Date.now(),
+      success: true,
+      payload: { translatedText: result.translatedText }
+    };
+  } catch (error) {
+    return {
+      id: request.id,
+      timestamp: Date.now(),
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    };
+  }
+}
+
+// Minimal synthesize-only handler that speaks exactly the provided text
+async function handleSynthesizeOnly(
+  event: IpcMainInvokeEvent,
+  request: IPCRequest<{ text: string; voiceId: string }>
+): Promise<IPCResponse<{ audioBuffer: number[] }>> {
+  try {
+    const configManager = ConfigurationManager.getInstance();
+    const { TextToSpeechManager } = await import('../services/TextToSpeechManager');
+    const ttsService = new TextToSpeechManager(configManager);
+    const audioBuffer = await ttsService.synthesize(request.payload.text, request.payload.voiceId);
+    return {
+      id: request.id,
+      timestamp: Date.now(),
+      success: true,
+      payload: { audioBuffer: Array.from(new Uint8Array(audioBuffer)) }
+    };
+  } catch (error) {
+    return {
+      id: request.id,
+      timestamp: Date.now(),
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    };
+  }
 }
 
 // Handler implementations (placeholder implementations for now)
@@ -722,37 +783,14 @@ async function handleTestTranslation(
     const translationResult = await translationService.translate(text, targetLanguage, 'en');
     console.log(`✅ Translation result: "${translationResult.translatedText}"`);
     
-    // Test text-to-speech
+    // IMPORTANT: Only synthesize the translated text (never the English/original)
     console.log(`🎤 Synthesizing speech with voice: ${voiceId}`);
-    const audioBuffer = await ttsService.synthesize(translationResult.translatedText, voiceId);
+    const ttsInput = translationResult.translatedText;
+    const audioBuffer = await ttsService.synthesize(ttsInput, voiceId);
     console.log(`✅ TTS synthesis complete: ${audioBuffer.byteLength} bytes`);
     
-    // Send audio to renderer for playback (since AudioContext doesn't work in main process)
-    console.log(`🔊 Sending audio to renderer for playback (headphones: ${outputToHeadphones})`);
-    try {
-      // Convert ArrayBuffer to regular array for IPC transmission
-      const audioArray = Array.from(new Uint8Array(audioBuffer));
-      
-      // Send to all renderer processes for audio playback
-      const { BrowserWindow } = await import('electron');
-      const windows = BrowserWindow.getAllWindows();
-      
-      for (const window of windows) {
-        if (!window.isDestroyed()) {
-          window.webContents.send('test-audio-playback', {
-            audioData: audioArray,
-            originalText: text,
-            translatedText: translationResult.translatedText,
-            outputToHeadphones: outputToHeadphones
-          });
-        }
-      }
-      
-      console.log('✅ Audio sent to renderer for playback');
-    } catch (audioError) {
-      const errorMessage = audioError instanceof Error ? audioError.message : 'Unknown audio error';
-      console.warn('⚠️ Audio sending failed, but translation was successful:', errorMessage);
-    }
+    // Do NOT push playback events from main. Return audio buffer and let renderer decide routing.
+    // This avoids duplicate playback and potential feedback loops.
     
     return {
       id: request.id,
@@ -762,7 +800,7 @@ async function handleTestTranslation(
         originalText: text,
         translatedText: translationResult.translatedText,
         audioGenerated: true,
-        audioBuffer: outputToHeadphones ? Array.from(new Uint8Array(audioBuffer)) : null
+        audioBuffer: Array.from(new Uint8Array(audioBuffer))
       }
     };
   } catch (error) {
@@ -858,6 +896,7 @@ async function handleSpeechTranscription(
     console.log(`✅ Transcription successful: "${transcriptionResult.text}"`);
     
     // If we're in real-time translation mode, continue with the full pipeline
+    // IMPORTANT: Do not call handleTestTranslation here to avoid recursion/looping
     if (processingOrchestrator && processingOrchestrator.isActive && transcriptionResult.text.trim().length > 0) {
       
       // Check if we're already processing a translation
@@ -986,8 +1025,8 @@ async function handleSpeechTranscription(
       lastProcessingTime = currentTime;
       
       try {
-        // Process translation directly without calling handleTestTranslation to avoid recursion
-        console.log('🔄 Processing real-time translation directly...');
+        // Process translation directly without calling test translation path
+        console.log('🔄 Processing real-time translation directly (no test path)...');
         
         const { text, targetLanguage, voiceId } = {
           text: transcriptionResult.text,
@@ -1003,14 +1042,15 @@ async function handleSpeechTranscription(
         const translationService = new TranslationServiceManager(configManager);
         const ttsService = new TextToSpeechManager(configManager);
         
-        // Translate
+        // Translate original text to target (ensure only translated text is used for TTS)
         console.log(`🔄 Translating: "${text}" to ${targetLanguage}`);
         const translationResult = await translationService.translate(text, targetLanguage, 'en');
         console.log(`✅ Translation result: "${translationResult.translatedText}"`);
         
-        // Synthesize speech
+        // Synthesize speech using translated text only
         console.log(`🎤 Synthesizing speech with voice: ${voiceId}`);
-        const audioBuffer = await ttsService.synthesize(translationResult.translatedText, voiceId);
+        const ttsInput = translationResult.translatedText;
+        const audioBuffer = await ttsService.synthesize(ttsInput, voiceId);
         console.log(`✅ TTS synthesis complete: ${audioBuffer.byteLength} bytes`);
         
         // Send audio to renderer for playback - but mark it as real-time to prevent re-capture

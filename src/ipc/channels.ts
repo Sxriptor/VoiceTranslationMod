@@ -43,6 +43,14 @@ export const SPEECH_CHANNELS = {
   TRANSCRIBE_PUSH_TO_TALK: 'speech:transcribe-push-to-talk'
 } as const;
 
+// Translation-only and TTS-only channels
+export const TRANSLATION_TTS_CHANNELS = {
+  TRANSLATE_ONLY: 'translation:translate',
+  SYNTHESIZE_ONLY: 'tts:synthesize'
+} as const;
+
+// Translation-only and TTS-only channels
+
 // Service status channels
 export const SERVICE_CHANNELS = {
   GET_SERVICE_STATUS: 'service:get-status',
@@ -87,6 +95,7 @@ export const IPC_CHANNELS = {
   ...CONFIG_CHANNELS,
   ...PIPELINE_CHANNELS,
   ...SPEECH_CHANNELS,
+  ...TRANSLATION_TTS_CHANNELS,
   ...SERVICE_CHANNELS,
   ...ERROR_CHANNELS,
   ...DEBUG_CHANNELS,

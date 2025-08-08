@@ -7,6 +7,7 @@ const testButton = document.getElementById('test-button') as HTMLButtonElement;
 const addVoiceButton = document.getElementById('add-voice-button') as HTMLButtonElement;
 const hearYourselfButton = document.getElementById('hear-yourself-button') as HTMLButtonElement;
 const virtualMicTestButton = document.getElementById('virtual-mic-test-button') as HTMLButtonElement;
+const outputToggleButton = document.getElementById('output-toggle-button') as HTMLButtonElement;
 const settingsButton = document.getElementById('settings-button') as HTMLButtonElement;
 const refreshButton = document.getElementById('refresh-button') as HTMLButtonElement;
 
@@ -37,6 +38,9 @@ let mediaRecorder: MediaRecorder | null = null;
 let audioStream: MediaStream | null = null;
 let audioChunks: Blob[] = [];
 let isProcessingAudio = false; // Prevent concurrent audio processing
+let virtualOutputDeviceId: string | null = null; // AudioOutput sink for VB-CABLE
+let passThroughAudioEl: HTMLAudioElement | null = null; // Mic → VB-CABLE passthrough
+let outputToVirtualDevice = true; // user toggle for routing output
 
 // Global error handlers
 window.addEventListener('error', (event) => {
@@ -58,12 +62,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     try {
         initializeEventListeners();
         await loadMicrophoneDevices();
+        await detectVirtualOutputDevice();
         await initializeLanguageSelector();
         await checkApiKeysConfiguration();
         setupRealTimeAudioPlayback();
         setupTestAudioPlayback();
         setupRealTimeTranslationAudio();
         setupClearAudioCapture();
+        await restoreOutputPreference();
         
         logToDebug('Application initialized successfully');
     } catch (error) {
@@ -74,47 +80,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 // Set up real-time audio playback listener
 function setupRealTimeAudioPlayback(): void {
-    (window as any).electronAPI.setupRealTimeAudioPlayback((data: any) => {
-        try {
-            const { audioData, originalText, translatedText, outputToVirtualMic } = data;
-            
-            // Update UI with the translation
-            if (originalTextDiv && translatedTextDiv) {
-                originalTextDiv.textContent = originalText;
-                originalTextDiv.classList.remove('processing', 'empty');
-                
-                translatedTextDiv.textContent = translatedText;
-                translatedTextDiv.classList.remove('empty');
-            }
-            
-            // Play the audio in the renderer process
-            playRealTimeAudio(audioData, outputToVirtualMic);
-            
-            logToDebug(`🔄 Real-time: "${originalText}" → "${translatedText}"`);
-            
-        } catch (error) {
-            console.error('Error handling real-time audio playback:', error);
-            logToDebug(`❌ Real-time playback error: ${error instanceof Error ? error.message : 'Unknown error'}`);
-        }
-    });
+    // Keep listener available but do nothing to avoid duplicate playback
+    (window as any).electronAPI.setupRealTimeAudioPlayback(() => {});
 }
 
 // Set up test audio playback listener
 function setupTestAudioPlayback(): void {
-    (window as any).electronAPI.setupTestAudioPlayback((data: any) => {
-        try {
-            const { audioData, originalText, translatedText, outputToHeadphones } = data;
-            
-            logToDebug(`🧪 Test audio: "${originalText}" → "${translatedText}"`);
-            
-            // Play the audio in the renderer process
-            playTestAudio(audioData, outputToHeadphones);
-            
-        } catch (error) {
-            console.error('Error handling test audio playback:', error);
-            logToDebug(`❌ Test audio playback error: ${error instanceof Error ? error.message : 'Unknown error'}`);
-        }
-    });
+    // No-op: we now play test audio from invoke response to avoid double-playback
 }
 
 // Set up real-time translation audio playback listener
@@ -223,6 +195,14 @@ async function playTestAudio(audioData: number[], outputToHeadphones: boolean): 
         
         audio.src = url;
         audio.volume = outputToHeadphones ? 1.0 : 0.7;
+        if (!outputToHeadphones && outputToVirtualDevice && virtualOutputDeviceId && 'setSinkId' in audio) {
+            try {
+                await (audio as any).setSinkId(virtualOutputDeviceId);
+                logToDebug(`🔌 Routed test audio to virtual output: ${virtualOutputDeviceId}`);
+            } catch (e) {
+                logToDebug('⚠️ Failed to route test audio to virtual output, using default output');
+            }
+        }
         
         await audio.play();
         
@@ -256,9 +236,17 @@ async function playRealTimeAudio(audioData: number[], outputToVirtualMic: boolea
         
         audio.src = url;
         
-        if (outputToVirtualMic) {
+        if (outputToVirtualMic && outputToVirtualDevice) {
             // For virtual microphone mode, play at lower volume
             audio.volume = 0.7;
+            if (virtualOutputDeviceId && 'setSinkId' in audio) {
+                try {
+                    await (audio as any).setSinkId(virtualOutputDeviceId);
+                    logToDebug(`🔌 Routed real-time audio to virtual output: ${virtualOutputDeviceId}`);
+                } catch (e) {
+                    logToDebug('⚠️ Failed to route real-time audio to virtual output, using default output');
+                }
+            }
             logToDebug('🎤 Playing translated audio (virtual microphone mode)');
         } else {
             // For headphone mode, play at normal volume
@@ -328,9 +316,17 @@ async function playRealTimeTranslationAudio(audioData: number[], outputToVirtual
         
         audio.src = url;
         
-        if (outputToVirtualMic) {
+        if (outputToVirtualMic && outputToVirtualDevice) {
             // For virtual microphone mode, play at lower volume
             audio.volume = 0.7;
+            if (virtualOutputDeviceId && 'setSinkId' in audio) {
+                try {
+                    await (audio as any).setSinkId(virtualOutputDeviceId);
+                    logToDebug(`🔌 Routed real-time translation audio to virtual output: ${virtualOutputDeviceId}`);
+                } catch (e) {
+                    logToDebug('⚠️ Failed to route real-time translation audio to virtual output, using default output');
+                }
+            }
             logToDebug('🎤 Playing real-time translated audio (virtual microphone mode)');
         } else {
             // For headphone mode, play at normal volume
@@ -366,6 +362,8 @@ function initializeEventListeners(): void {
     
     // Virtual mic test button
     virtualMicTestButton.addEventListener('click', testVirtualMicrophone);
+    // Output toggle button
+    outputToggleButton.addEventListener('click', toggleOutputTarget);
     
     // Settings button
     settingsButton.addEventListener('click', openSettings);
@@ -430,6 +428,7 @@ async function toggleTranslation(): Promise<void> {
             
             // Just initialize audio stream for push-to-talk - no real-time orchestrator needed
             await initializeAudioStream();
+            await startPassThrough();
             
             isTranslating = true;
             startButton.textContent = '⏹️ Stop Translation';
@@ -481,7 +480,7 @@ async function testTranslation(): Promise<void> {
             logToDebug(`Original: ${response.payload.originalText}`);
             logToDebug(`Translated: ${response.payload.translatedText}`);
             
-            // Now play the audio in the renderer process where browser APIs are available
+            // Play the audio locally from the response to avoid event-based duplication
             if (response.payload.audioGenerated && response.payload.audioBuffer) {
                 try {
                     logToDebug('🔊 Playing translated audio in renderer process...');
@@ -1469,6 +1468,13 @@ async function playAudioInRenderer(audioBufferArray: number[]): Promise<void> {
             };
             
             audio.src = url;
+            if (outputToVirtualDevice && virtualOutputDeviceId && 'setSinkId' in audio) {
+                (audio as any).setSinkId(virtualOutputDeviceId).then(() => {
+                    console.log(`🔌 Routed TTS audio to virtual output: ${virtualOutputDeviceId}`);
+                }).catch((err: any) => {
+                    console.warn('⚠️ setSinkId failed, using default output', err);
+                });
+            }
             console.log('🎵 Starting audio.play()...');
             audio.play().catch(playError => {
                 console.error('❌ Audio.play() failed:', playError);
@@ -1704,6 +1710,7 @@ async function cleanupAudioStream(): Promise<void> {
         if (isRecording) {
             await stopRecording();
         }
+        await stopPassThrough();
         
         // Clean up MediaRecorder
         if (mediaRecorder && mediaRecorder.state !== 'inactive') {
@@ -1749,6 +1756,7 @@ async function startRecording(): Promise<void> {
     try {
         isRecording = true;
         audioChunks = [];
+        await stopPassThrough();
         
         // Update UI
         const recordingDot = document.querySelector('.recording-dot') as HTMLElement;
@@ -1900,6 +1908,7 @@ async function processRecordedAudio(): Promise<void> {
         // Reset UI
         updateRecordingUI(false);
         logToDebug('✅ Live translation completed successfully');
+        await startPassThrough();
         
     } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -2058,22 +2067,20 @@ async function convertToWav(audioBlob: Blob): Promise<Blob> {
 
 async function translateText(text: string): Promise<string> {
     try {
-        const response = await (window as any).electronAPI.invoke('pipeline:test', {
+        const response = await (window as any).electronAPI.invoke('translation:translate', {
             id: Date.now().toString(),
             timestamp: Date.now(),
             payload: {
-                text: text,
+                text,
                 targetLanguage: languageSelect.value || 'es',
-                voiceId: voiceSelect.value || 'pNInz6obpgDQGcFmaJgB',
-                outputToHeadphones: false // Don't play audio yet
+                sourceLanguage: 'en'
             }
         });
 
-        if (response.success) {
+        if (response.success && response.payload?.translatedText) {
             return response.payload.translatedText;
-        } else {
-            throw new Error(response.error || 'Translation failed');
         }
+        throw new Error(response.error || 'Translation failed');
     } catch (error) {
         throw new Error(`Translation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
@@ -2081,24 +2088,21 @@ async function translateText(text: string): Promise<string> {
 
 async function synthesizeAndPlay(text: string): Promise<void> {
     try {
-        const response = await (window as any).electronAPI.invoke('pipeline:test', {
+        const response = await (window as any).electronAPI.invoke('tts:synthesize', {
             id: Date.now().toString(),
             timestamp: Date.now(),
             payload: {
-                text: text,
-                targetLanguage: languageSelect.value || 'es',
-                voiceId: voiceSelect.value || 'pNInz6obpgDQGcFmaJgB',
-                outputToHeadphones: false // We'll handle playback here
+                text,
+                voiceId: voiceSelect.value || 'pNInz6obpgDQGcFmaJgB'
             }
         });
 
-        if (response.success && response.payload.audioBuffer) {
-            // Play through virtual microphone (for other apps to hear)
+        if (response.success && response.payload?.audioBuffer) {
             await playAudioInRenderer(response.payload.audioBuffer);
-            logToDebug('🔊 Translated audio played through virtual microphone');
-        } else {
-            throw new Error(response.error || 'TTS synthesis failed');
+            logToDebug('🔊 Translated audio played');
+            return;
         }
+        throw new Error(response.error || 'TTS synthesis failed');
     } catch (error) {
         logToDebug(`⚠️ Audio synthesis failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
@@ -2185,4 +2189,101 @@ function showKeybindModal(): void {
         document.body.removeChild(modal);
         document.removeEventListener('keydown', keyListener);
     });
+}
+
+// ===== Virtual Output Detection & Passthrough =====
+
+async function detectVirtualOutputDevice(): Promise<void> {
+    try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const outputs = devices.filter(d => d.kind === 'audiooutput');
+        const preferred = outputs.find(d => /cable output|vb-audio|virtual/i.test(d.label));
+        virtualOutputDeviceId = preferred?.deviceId || null;
+        if (virtualOutputDeviceId) {
+            logToDebug(`🎚️ Virtual output detected: ${preferred?.label || virtualOutputDeviceId}`);
+        } else {
+            logToDebug('ℹ️ No VB-CABLE output detected. Will use default system output for playback.');
+        }
+    } catch (e) {
+        logToDebug('⚠️ Failed to enumerate audio outputs');
+    }
+}
+
+async function startPassThrough(): Promise<void> {
+    try {
+        if (!audioStream) return;
+        if (!passThroughAudioEl) {
+            passThroughAudioEl = new Audio();
+            passThroughAudioEl.autoplay = true;
+            passThroughAudioEl.loop = false;
+        }
+        passThroughAudioEl.srcObject = audioStream as any;
+        passThroughAudioEl.volume = 1.0;
+        if (outputToVirtualDevice && virtualOutputDeviceId && 'setSinkId' in passThroughAudioEl) {
+            try {
+                await (passThroughAudioEl as any).setSinkId(virtualOutputDeviceId);
+                logToDebug('🔁 Mic passthrough active → Virtual output');
+            } catch (e) {
+                logToDebug('⚠️ Could not route passthrough to virtual output, using default output');
+            }
+        } else {
+            logToDebug('🔁 Mic passthrough active → System default output');
+        }
+        await passThroughAudioEl.play();
+    } catch (e) {
+        logToDebug('⚠️ Failed to start passthrough');
+    }
+}
+
+async function stopPassThrough(): Promise<void> {
+    try {
+        if (passThroughAudioEl) {
+            passThroughAudioEl.pause();
+            passThroughAudioEl.srcObject = null;
+        }
+        logToDebug('⏹️ Mic passthrough paused');
+    } catch {
+        // no-op
+    }
+}
+
+// ===== Output preference toggle =====
+
+async function restoreOutputPreference(): Promise<void> {
+    try {
+        const response = await (window as any).electronAPI.invoke('config:get', {
+            id: Date.now().toString(),
+            timestamp: Date.now(),
+            payload: null
+        });
+        if (response.success && response.payload?.uiSettings?.outputToVirtualDevice !== undefined) {
+            outputToVirtualDevice = !!response.payload.uiSettings.outputToVirtualDevice;
+        }
+    } catch {}
+    updateOutputToggleButton();
+}
+
+function updateOutputToggleButton(): void {
+    if (!outputToggleButton) return;
+    outputToggleButton.textContent = outputToVirtualDevice
+        ? '🔀 Output: Virtual Device'
+        : '🔀 Output: App/Headphones';
+}
+
+async function toggleOutputTarget(): Promise<void> {
+    outputToVirtualDevice = !outputToVirtualDevice;
+    updateOutputToggleButton();
+    // Persist preference
+    try {
+        await (window as any).electronAPI.invoke('config:set', {
+            id: Date.now().toString(),
+            timestamp: Date.now(),
+            payload: { uiSettings: { outputToVirtualDevice } }
+        });
+    } catch {}
+    // Restart passthrough with new routing if active
+    if (isTranslating && audioStream && !isRecording) {
+        await stopPassThrough();
+        await startPassThrough();
+    }
 }

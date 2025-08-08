@@ -34,6 +34,10 @@ export declare const SPEECH_CHANNELS: {
     readonly TRANSCRIBE_RESPONSE: "speech:transcribe-response";
     readonly TRANSCRIBE_PUSH_TO_TALK: "speech:transcribe-push-to-talk";
 };
+export declare const TRANSLATION_TTS_CHANNELS: {
+    readonly TRANSLATE_ONLY: "translation:translate";
+    readonly SYNTHESIZE_ONLY: "tts:synthesize";
+};
 export declare const SERVICE_CHANNELS: {
     readonly GET_SERVICE_STATUS: "service:get-status";
     readonly SERVICE_STATUS_RESPONSE: "service:status-response";
@@ -81,6 +85,8 @@ export declare const IPC_CHANNELS: {
     readonly GET_SERVICE_STATUS: "service:get-status";
     readonly SERVICE_STATUS_RESPONSE: "service:status-response";
     readonly SERVICE_STATUS_CHANGED: "service:status-changed";
+    readonly TRANSLATE_ONLY: "translation:translate";
+    readonly SYNTHESIZE_ONLY: "tts:synthesize";
     readonly TRANSCRIBE: "speech:transcribe";
     readonly TRANSCRIBE_RESPONSE: "speech:transcribe-response";
     readonly TRANSCRIBE_PUSH_TO_TALK: "speech:transcribe-push-to-talk";
