@@ -47,6 +47,7 @@ const bidirectionalStatusIndicator = document.getElementById('bidirectional-stat
 const bidirectionalKeybindSpan = document.getElementById('bidirectional-current-keybind') as HTMLSpanElement | null;
 const bidirectionalChangeKeybindBtn = document.getElementById('bidirectional-change-keybind-btn') as HTMLButtonElement | null;
 const bidirectionalOutputSelect = document.getElementById('bidirectional-output-select') as HTMLSelectElement | null;
+const bidirectionalInputSelect = document.getElementById('bidirectional-input-select') as HTMLSelectElement | null;
 const incomingVoiceSelect = document.getElementById('incoming-voice-select') as HTMLSelectElement | null;
 const bidirectionalRecordingDot = document.getElementById('bidirectional-recording-dot') as HTMLElement | null;
 const bidirectionalStatusText = document.getElementById('bidirectional-status') as HTMLSpanElement | null;
@@ -70,8 +71,17 @@ let outputToVirtualDevice = true; // user toggle for routing output
 let isBidirectionalActive = false;
 let bidirectionalKeybind = 'KeyB';
 let bidirectionalOutputDeviceId: string | null = null;
+let bidirectionalInputDeviceId: string | null = null;
 let incomingVoiceId: string | null = null;
 let bidiAudioStream: MediaStream | null = null;
+let bidiVadThreshold = 0.0035; // adaptive threshold for system input
+let bidiCalibrating = false;
+let bidiCalibSamples = 0;
+let bidiCalibAccum = 0;
+let bidiLastProbeAttemptTs = 0;
+let bidiBaseline = 0;
+let bidiConsecutiveActiveFrames = 0;
+let bidiStartTs = 0;
 let bidiRecorder: MediaRecorder | null = null;
 let bidiAnalyzerCtx: AudioContext | null = null;
 let bidiAnalyzerNode: AnalyserNode | null = null;
@@ -472,6 +482,7 @@ function initializeEventListeners(): void {
     if (bidirectionalToggleButton) bidirectionalToggleButton.addEventListener('click', toggleBidirectional);
     if (bidirectionalChangeKeybindBtn) bidirectionalChangeKeybindBtn.addEventListener('click', showBidirectionalKeybindModal);
     if (bidirectionalOutputSelect) bidirectionalOutputSelect.addEventListener('change', onBidirectionalOutputChange);
+    if (bidirectionalInputSelect) bidirectionalInputSelect.addEventListener('change', onBidirectionalInputChange);
     if (incomingVoiceSelect) incomingVoiceSelect.addEventListener('change', onIncomingVoiceChange);
 }
 
@@ -766,8 +777,8 @@ function switchTab(tab: 'translate' | 'bidirectional'): void {
 
 async function initializeBidirectionalTab(): Promise<void> {
     try {
-        // Load output devices
-        await loadBidirectionalOutputDevices();
+        // Load output and input devices
+        await Promise.all([loadBidirectionalOutputDevices(), loadBidirectionalInputDevices()]);
         // Load incoming voices
         await loadIncomingVoices();
         // Restore saved settings
@@ -785,6 +796,10 @@ async function initializeBidirectionalTab(): Promise<void> {
             if (cfg.uiSettings?.bidirectionalOutputDeviceId && bidirectionalOutputSelect) {
                 bidirectionalOutputDeviceId = cfg.uiSettings.bidirectionalOutputDeviceId;
                 bidirectionalOutputSelect.value = bidirectionalOutputDeviceId || '';
+            }
+            if (cfg.uiSettings?.bidirectionalInputDeviceId && bidirectionalInputSelect) {
+                bidirectionalInputDeviceId = cfg.uiSettings.bidirectionalInputDeviceId;
+                bidirectionalInputSelect.value = bidirectionalInputDeviceId || '';
             }
             if (cfg.uiSettings?.incomingVoiceId && incomingVoiceSelect) {
                 incomingVoiceId = cfg.uiSettings.incomingVoiceId;
@@ -809,6 +824,30 @@ async function loadBidirectionalOutputDevices(): Promise<void> {
         if (outputs.length > 0 && !bidirectionalOutputDeviceId) {
             bidirectionalOutputDeviceId = outputs[0].deviceId;
             bidirectionalOutputSelect.value = bidirectionalOutputDeviceId || '';
+        }
+    } catch {}
+}
+
+async function loadBidirectionalInputDevices(): Promise<void> {
+    if (!bidirectionalInputSelect) return;
+    try {
+        // Ensure mic permission to reveal labels
+        try {
+            const tmp = await navigator.mediaDevices.getUserMedia({ audio: true });
+            tmp.getTracks().forEach(t => t.stop());
+        } catch {}
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const inputs = devices.filter(d => d.kind === 'audioinput');
+        bidirectionalInputSelect.innerHTML = '';
+        inputs.forEach((d) => {
+            const opt = document.createElement('option');
+            opt.value = d.deviceId;
+            opt.textContent = d.label || 'Input Device';
+            bidirectionalInputSelect.appendChild(opt);
+        });
+        if (inputs.length > 0 && !bidirectionalInputDeviceId) {
+            bidirectionalInputDeviceId = inputs[0].deviceId;
+            bidirectionalInputSelect.value = bidirectionalInputDeviceId || '';
         }
     } catch {}
 }
@@ -853,6 +892,18 @@ async function onBidirectionalOutputChange(): Promise<void> {
             id: Date.now().toString(),
             timestamp: Date.now(),
             payload: { uiSettings: { bidirectionalOutputDeviceId } }
+        });
+    } catch {}
+}
+
+async function onBidirectionalInputChange(): Promise<void> {
+    if (!bidirectionalInputSelect) return;
+    bidirectionalInputDeviceId = bidirectionalInputSelect.value || null;
+    try {
+        await (window as any).electronAPI.invoke('config:set', {
+            id: Date.now().toString(),
+            timestamp: Date.now(),
+            payload: { uiSettings: { bidirectionalInputDeviceId } }
         });
     } catch {}
 }
@@ -953,20 +1004,35 @@ async function startBidirectional(): Promise<void> {
         alert('Please select an incoming voice');
         return;
     }
-    // Start capture - use desktop audio to capture system output instead of microphone
+    // Start capture for system input (VB-Cable B). Prefer explicit device if selected; else try desktop audio; fallback to mic
     try {
-        // Try desktop audio capture first (captures system audio output)
-        bidiAudioStream = await (navigator.mediaDevices as any).getDisplayMedia({
-            video: false,
-            audio: {
-                echoCancellation: false,
-                noiseSuppression: false,
-                autoGainControl: false,
-                sampleRate: 44100,
-                channelCount: 2
-            }
-        });
-        console.log('✅ Using desktop audio capture for system output');
+        if (bidirectionalInputDeviceId) {
+            // Capture specific input device (e.g., VB-Cable B)
+            bidiAudioStream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    deviceId: { exact: bidirectionalInputDeviceId },
+                    echoCancellation: false,
+                    noiseSuppression: false,
+                    autoGainControl: false,
+                    sampleRate: 44100,
+                    channelCount: 2
+                }
+            });
+            console.log('✅ Using selected system input device for bidirectional');
+        } else {
+            // Try desktop/system audio capture
+            bidiAudioStream = await (navigator.mediaDevices as any).getDisplayMedia({
+                video: false,
+                audio: {
+                    echoCancellation: false,
+                    noiseSuppression: false,
+                    autoGainControl: false,
+                    sampleRate: 44100,
+                    channelCount: 2
+                }
+            });
+            console.log('✅ Using desktop audio capture for system output');
+        }
     } catch (e) {
         console.warn('⚠️ Desktop audio failed, falling back to microphone:', e);
         // Fallback to microphone if desktop audio not available
@@ -1004,6 +1070,13 @@ async function startBidirectional(): Promise<void> {
     bidiAnalyzerNode.fftSize = 2048;
     bidiAnalyzerNode.smoothingTimeConstant = 0.3;
     bidiSourceNode.connect(bidiAnalyzerNode);
+    // Begin short auto-calibration window to set a sensible threshold for VB-Cable/system input
+    bidiCalibrating = true;
+    bidiCalibSamples = 0;
+    bidiCalibAccum = 0;
+    bidiBaseline = 0;
+    bidiConsecutiveActiveFrames = 0;
+    bidiStartTs = Date.now();
     
     console.log('🔊 Audio analysis setup complete:', {
         contextState: bidiAnalyzerCtx.state,
@@ -1028,21 +1101,42 @@ async function startBidirectional(): Promise<void> {
                 sum += Math.abs(val);
             }
             const vol = sum / buf.length;
-            const voiceActive = vol > 0.01; // Reset to normal threshold for system audio (desktop capture)
+            // Auto-calibrate threshold for first ~2 seconds
+            if (bidiCalibrating) {
+                bidiCalibAccum += vol;
+                bidiCalibSamples += 1;
+                if (bidiCalibSamples >= 10) { // ~2 seconds at 200ms interval
+                    const baseline = bidiCalibAccum / bidiCalibSamples;
+                    // Threshold is a multiple above baseline, with tighter upper bound to remain sensitive
+                    const computed = Math.max(0.0010, Math.min(0.0055, baseline * 1.8));
+                    bidiVadThreshold = computed;
+                    bidiCalibrating = false;
+                    bidiBaseline = baseline;
+                    console.log(`🛠️ VAD calibrated: baseline=${baseline.toFixed(4)} threshold=${bidiVadThreshold.toFixed(4)}`);
+                }
+                // During calibration, do not attempt any probe or section logic
+                return;
+            }
+            const voiceActive = vol > bidiVadThreshold;
             
             // Always log volume every few cycles to confirm VAD is working
             if (Math.random() < 0.1) { // 10% of the time
-                console.log(`🎤 Audio level: ${vol.toFixed(4)} (threshold: 0.01, active: ${voiceActive}, bufLen: ${buf.length})`);
+                console.log(`🎤 Audio level: ${vol.toFixed(4)} (threshold: ${bidiVadThreshold.toFixed(4)}, active: ${voiceActive}, bufLen: ${buf.length})`);
             }
             
             if (voiceActive) {
                 console.log(`🎯 Voice detected! Level: ${vol.toFixed(4)}`);
             }
-        if (voiceActive) bidiLastVoiceTs = Date.now();
+        if (voiceActive) {
+            bidiConsecutiveActiveFrames += 1;
+            bidiLastVoiceTs = Date.now();
+        } else {
+            bidiConsecutiveActiveFrames = 0;
+        }
         bidiInSpeech = voiceActive;
         const silenceMs = Date.now() - bidiLastVoiceTs;
         // On speech onset, schedule a language probe if no section and not blocked
-        if (voiceActive && !bidiSectionActive && !bidiSectionBlocked && !bidiNeedsProbe) {
+        if (voiceActive && bidiConsecutiveActiveFrames >= 3 && !bidiSectionActive && !bidiSectionBlocked && !bidiNeedsProbe) {
             console.log('🎯 Setting probe flag - speech detected');
             try { 
                 (window as any).electronAPI.invoke('bidirectional:log', { 
@@ -1052,6 +1146,7 @@ async function startBidirectional(): Promise<void> {
                 }); 
             } catch {}
             bidiNeedsProbe = true;
+            bidiLastProbeAttemptTs = Date.now();
         }
         // On sustained silence, finalize section or clear block
         if (!voiceActive && silenceMs > 800) {
@@ -1059,6 +1154,16 @@ async function startBidirectional(): Promise<void> {
                 finalizeBidirectionalSection().catch(() => {});
             } else if (bidiSectionBlocked) {
                 bidiSectionBlocked = false; // allow probing on next speech
+            }
+        }
+        // If no probe has been attempted for a while but we're receiving audio, force a probe soon
+        if (!bidiSectionActive && !bidiSectionBlocked && !bidiNeedsProbe) {
+            const now = Date.now();
+            const recentlyStarted = (now - bidiStartTs) < 2000;
+            const belowFloor = vol <= Math.max(bidiVadThreshold, bidiBaseline * 1.2);
+            if (!recentlyStarted && !belowFloor && (now - bidiLastProbeAttemptTs > 3000)) {
+                bidiNeedsProbe = true;
+                console.log('⏱️ Forcing probe due to activity without probe');
             }
         }
         } catch (e) {
@@ -1094,29 +1199,24 @@ async function startBidirectional(): Promise<void> {
                 console.log(`📊 Accumulated chunk, total blobs: ${bidiCurrentBlobs.length}`);
                 return;
             }
-            // If we need a language probe (speech onset), send minimal probe
+            // If we need a language probe (speech onset or forced), send minimal probe
             if (bidiNeedsProbe) {
                 console.log('🔍 Processing probe request...');
                 bidiNeedsProbe = false;
-                // Convert probe to WAV for compatibility
-                let wavProbe: Blob;
-                try {
-                    wavProbe = await convertToWav(evt.data);
-                } catch (e) {
-                    // Fallback: use original blob if conversion fails
-                    wavProbe = evt.data;
-                }
-                const arrBuf = await wavProbe.arrayBuffer();
+                bidiLastProbeAttemptTs = Date.now();
+                // Send original chunk (webm/opus) directly to Whisper to avoid heavy decode/encode on renderer
+                const arrBuf = await evt.data.arrayBuffer();
                 const audioData = Array.from(new Uint8Array(arrBuf));
                 const resp = await (window as any).electronAPI.invoke('speech:transcribe', {
-                    id: Date.now().toString(), timestamp: Date.now(), payload: { audioData, language: 'auto', contentType: 'audio/wav' }
+                    id: Date.now().toString(), timestamp: Date.now(), payload: { audioData, language: 'auto', contentType: evt.data.type || 'audio/webm' }
                 });
                 if (resp.success) {
                     const detectedLang = resp.payload.language || 'unknown';
                     try { await (window as any).electronAPI.invoke('bidirectional:log', { id: Date.now().toString(), timestamp: Date.now(), payload: { level: 'info', message: 'Probe result', data: { detectedLang } } }); } catch {}
-                    if (detectedLang === targetLang) {
-                        // Start section: include this probe chunk
+                    if (detectedLang && detectedLang !== targetLang) {
+                        // Start section for non-target language (needs translation)
                         bidiSectionActive = true;
+                        // remember source lang for debug/info; not used elsewhere yet
                         bidiCurrentBlobs = [evt.data];
                         if (bidirectionalDetectedText) {
                             const snippet = (resp.payload.text || '').trim();
@@ -1124,7 +1224,7 @@ async function startBidirectional(): Promise<void> {
                             bidirectionalDetectedText.classList.remove('empty');
                         }
                     } else {
-                        // Block until next silence to avoid repeated probes during same non-target speech
+                        // Block until next silence to avoid repeated probes when it's already target language
                         bidiSectionBlocked = true;
                     }
                 } else {
@@ -1526,8 +1626,10 @@ function logToDebug(message: string): void {
 // Handle device changes
 if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
     navigator.mediaDevices.addEventListener('devicechange', () => {
-        logToDebug('Audio devices changed, refreshing list...');
+        logToDebug('Audio devices changed, refreshing lists...');
         loadMicrophoneDevices();
+        loadBidirectionalOutputDevices();
+        loadBidirectionalInputDevices();
     });
 }
 
