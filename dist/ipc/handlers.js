@@ -75,6 +75,33 @@ function registerIPCHandlers() {
     // Voice handlers
     electron_1.ipcMain.handle(channels_1.IPC_CHANNELS.GET_VOICES, handleGetVoices);
     electron_1.ipcMain.handle(channels_1.IPC_CHANNELS.START_VOICE_CLONING, handleStartVoiceCloning);
+    // Bidirectional logging and state (renderer → main for terminal visibility)
+    electron_1.ipcMain.handle('bidirectional:state', async (event, request) => {
+        try {
+            const { action, details } = request.payload || { action: 'unknown' };
+            console.log(`[Bidirectional] ${action}`, details || '');
+            return { id: request.id, timestamp: Date.now(), success: true };
+        }
+        catch (error) {
+            return { id: request.id, timestamp: Date.now(), success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+        }
+    });
+    electron_1.ipcMain.handle('bidirectional:log', async (event, request) => {
+        try {
+            const { level = 'info', message, data } = request.payload || { message: '' };
+            const tag = level.toUpperCase();
+            if (level === 'error')
+                console.error(`[Bidirectional][${tag}] ${message}`, data || '');
+            else if (level === 'warn')
+                console.warn(`[Bidirectional][${tag}] ${message}`, data || '');
+            else
+                console.log(`[Bidirectional][${tag}] ${message}`, data || '');
+            return { id: request.id, timestamp: Date.now(), success: true };
+        }
+        catch (error) {
+            return { id: request.id, timestamp: Date.now(), success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+        }
+    });
     console.log('IPC handlers registered successfully');
 }
 /**
@@ -696,7 +723,7 @@ async function handleGetTranslationStatus(event, request) {
 async function handleSpeechTranscription(event, request) {
     console.log('🎤 Handling speech transcription request');
     try {
-        const { audioData, language } = request.payload;
+        const { audioData, language, contentType } = request.payload;
         // Initialize services
         console.log('📋 Initializing Whisper service...');
         const configManager = ConfigurationManager_1.ConfigurationManager.getInstance();
@@ -711,7 +738,7 @@ async function handleSpeechTranscription(event, request) {
         const whisperClient = new WhisperApiClient(apiKeyManager);
         // Convert audio data back to blob
         const audioBuffer = new Uint8Array(audioData).buffer;
-        const audioBlob = new Blob([audioBuffer], { type: 'audio/webm' });
+        const audioBlob = new Blob([audioBuffer], { type: contentType || 'audio/webm' });
         console.log(`🎵 Transcribing audio: ${audioBlob.size} bytes`);
         // Use real Whisper API for transcription
         console.log('🔄 Sending audio to Whisper API...');

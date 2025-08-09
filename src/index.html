@@ -390,6 +390,8 @@
             <aside id="app-sidebar" class="sidebar">
                 <div class="brand">Menu</div>
                 <nav class="nav">
+                    <button id="sidebar-translate-button"><span class="icon">🗣️</span><span class="label">Translate</span></button>
+                    <button id="sidebar-bidirectional-button"><span class="icon">🔁</span><span class="label">Bidirectional</span></button>
                     <button id="sidebar-settings-button"><span class="icon">⚙️</span><span class="label">Settings</span></button>
                     <button id="sidebar-logs-button"><span class="icon">🧾</span><span class="label">Logs</span></button>
                     <button id="sidebar-about-button"><span class="icon">ℹ️</span><span class="label">About</span></button>
@@ -397,6 +399,7 @@
             </aside>
 
             <main class="main-content">
+            <div id="translate-page">
             <div class="control-panel">
                 <div class="control-row">
                     <div class="control-group">
@@ -498,6 +501,63 @@
 
             <div id="debug-console" class="debug-console">
                 <div id="debug-output">Application initialized...</div>
+            </div>
+            </div>
+
+            <!-- Bidirectional Tab Content -->
+            <div id="bidirectional-panel" class="control-panel" style="display: none;">
+                <div class="control-row">
+                    <div class="control-group">
+                        <label>🔁 Bidirectional Mode</label>
+                        <button id="bidirectional-toggle-button" class="start-button" type="button">
+                            <span class="status-indicator" id="bidirectional-status-indicator"></span>
+                            Start Bidirectional
+                        </button>
+                    </div>
+                    <div class="control-group">
+                        <label>⌨️ Keybind</label>
+                        <div class="keybind-info">
+                            <span>Toggle with <kbd id="bidirectional-current-keybind">KeyB</kbd></span>
+                            <button id="bidirectional-change-keybind-btn" class="change-keybind-btn">Change Key</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="control-row">
+                    <div class="control-group">
+                        <label for="bidirectional-output-select">🔊 Output Device</label>
+                        <select id="bidirectional-output-select">
+                            <option value="">Loading output devices...</option>
+                        </select>
+                    </div>
+                    <div class="control-group">
+                        <label for="incoming-voice-select">🎤 Incoming Voice</label>
+                        <select id="incoming-voice-select">
+                            <option value="">Loading voices...</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="live-translation-panel" style="margin-top: 0;">
+                    <div class="translation-status">
+                        <div class="recording-indicator">
+                            <span class="recording-dot" id="bidirectional-recording-dot"></span>
+                            <span id="bidirectional-status">Idle</span>
+                        </div>
+                    </div>
+                    <div class="translation-display">
+                        <div class="translation-box">
+                            <div class="translation-section">
+                                <label>🗣️ Detected (Target Language)</label>
+                                <div id="bidirectional-detected-text" class="text-display empty">Waiting...</div>
+                            </div>
+                            <div class="translation-section">
+                                <label>🔊 Re-spoken</label>
+                                <div id="bidirectional-respoken-text" class="text-display empty">Ready...</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
             </main>
         </div>

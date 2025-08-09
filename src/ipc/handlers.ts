@@ -67,6 +67,29 @@ export function registerIPCHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.GET_VOICES, handleGetVoices);
   ipcMain.handle(IPC_CHANNELS.START_VOICE_CLONING, handleStartVoiceCloning);
 
+  // Bidirectional logging and state (renderer → main for terminal visibility)
+  ipcMain.handle('bidirectional:state', async (event: IpcMainInvokeEvent, request: IPCRequest<{ action: string; details?: any }>) => {
+    try {
+      const { action, details } = request.payload || { action: 'unknown' };
+      console.log(`[Bidirectional] ${action}`, details || '');
+      return { id: request.id, timestamp: Date.now(), success: true };
+    } catch (error) {
+      return { id: request.id, timestamp: Date.now(), success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  });
+  ipcMain.handle('bidirectional:log', async (event: IpcMainInvokeEvent, request: IPCRequest<{ level?: 'info'|'warn'|'error'; message: string; data?: any }>) => {
+    try {
+      const { level = 'info', message, data } = request.payload || { message: '' };
+      const tag = level.toUpperCase();
+      if (level === 'error') console.error(`[Bidirectional][${tag}] ${message}`, data || '');
+      else if (level === 'warn') console.warn(`[Bidirectional][${tag}] ${message}`, data || '');
+      else console.log(`[Bidirectional][${tag}] ${message}`, data || '');
+      return { id: request.id, timestamp: Date.now(), success: true };
+    } catch (error) {
+      return { id: request.id, timestamp: Date.now(), success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  });
+
   console.log('IPC handlers registered successfully');
 }
 
@@ -855,12 +878,12 @@ async function handleGetTranslationStatus(
 
 async function handleSpeechTranscription(
   event: IpcMainInvokeEvent, 
-  request: IPCRequest<{ audioData: number[]; language?: string }>
+  request: IPCRequest<{ audioData: number[]; language?: string; contentType?: string }>
 ): Promise<IPCResponse<{ text: string; language?: string; duration?: number }>> {
   console.log('🎤 Handling speech transcription request');
   
   try {
-    const { audioData, language } = request.payload;
+    const { audioData, language, contentType } = request.payload;
     
     // Initialize services
     console.log('📋 Initializing Whisper service...');
@@ -880,7 +903,7 @@ async function handleSpeechTranscription(
     
     // Convert audio data back to blob
     const audioBuffer = new Uint8Array(audioData).buffer;
-    const audioBlob = new Blob([audioBuffer], { type: 'audio/webm' });
+    const audioBlob = new Blob([audioBuffer], { type: contentType || 'audio/webm' });
     
     console.log(`🎵 Transcribing audio: ${audioBlob.size} bytes`);
     
